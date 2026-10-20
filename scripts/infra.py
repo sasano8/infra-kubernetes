@@ -286,7 +286,22 @@ def apply_admission_config(cluster, path, description, manager, force=False):
         time.sleep(min(5, max(0, deadline - time.monotonic())))
 
 
-def apply_serving_core(cluster, source):
+def knative_field_manager(cluster):
+    # A field-manager is persistent ownership metadata, not a resource name.
+    # Retain the original ID in old installations to avoid taking over its fields.
+    for namespace in ("knative-serving", "kourier-system"):
+        result = cluster.call("get", "deployments", "-n", namespace, "--ignore-not-found",
+                              "-o", "json", "--request-timeout=10s", capture_output=True, text=True)
+        resources = json.loads(result.stdout) if result.stdout.strip() else {}
+        if any(field.get("manager") == "sas47-upstream"
+               for resource in resources.get("items", [])
+               for field in resource.get("metadata", {}).get("managedFields", [])):
+            print("既存 Knative の管理 ID を引き継ぎます（リソース名は変更しません）。", flush=True)
+            return "sas47-upstream"
+    return "knative-upstream"
+
+
+def apply_serving_core(cluster, source, manager="knative-upstream"):
     # Use kubectl to decode the official YAML; no additional Python YAML dependency.
     converted = cluster.call("create", "--dry-run=client", "--validate=false", "-f", source,
                              "-o", "json", capture_output=True, text=True)
@@ -320,12 +335,13 @@ def apply_serving_core(cluster, source):
                 print(f"Knative 管理の既存リソースを保持します: {kind}/{metadata['name']}", flush=True)
                 continue
         retained.append(resource)
-    cluster.call("apply", "--server-side", "--field-manager=knative-upstream", "-f", "-",
+    cluster.call("apply", "--server-side", f"--field-manager={manager}", "-f", "-",
                  input=json.dumps({"apiVersion": "v1", "kind": "List", "items": retained}), text=True)
 
 
 def bootstrap(cluster, output):
     # Only called for a new, installer-owned host. Never in existing mode.
+    manager = knative_field_manager(cluster)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         for asset in ("serving-crds.yaml", "serving-core.yaml"):
@@ -340,10 +356,10 @@ def bootstrap(cluster, output):
         (tmp / "kourier.yaml").write_text(
             kourier.replace("  type: LoadBalancer\n", "  type: ClusterIP\n")
         )
-        upstream = ("apply", "--server-side", "--field-manager=knative-upstream")
+        upstream = ("apply", "--server-side", f"--field-manager={manager}")
         cluster.call(*upstream, "-f", tmp / "serving-crds.yaml")
         cluster.call("wait", "crd", "--all", "--for=condition=Established", "--timeout=120s")
-        apply_serving_core(cluster, tmp / "serving-core.yaml")
+        apply_serving_core(cluster, tmp / "serving-core.yaml", manager)
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
     apply_admission_config(cluster, output / "knative-config", "Knative", "knative-config", force=True)

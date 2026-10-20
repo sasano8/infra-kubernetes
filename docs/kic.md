@@ -139,3 +139,9 @@ Pod の消滅を待ってから新 Namespace の Kong を起動する。
 この切り替え中は一時的な通信断がある。旧 Namespace 自体や旧 Secret は自動削除しない。
 移行後は `sudo python3 scripts/check-routes.py` と外部 HTTPS の両方を確認する。
 旧リソースの名前は移行用の検出処理だけに残し、新規リソースには使用しない。
+
+Knative の旧 field-manager はリソース名ではなく Kubernetes の内部管理 ID。
+既存 Deployment にその管理履歴があれば同じ ID を引き継ぎ、フィールドの競合を避ける。
+新規環境では `knative-upstream` を使う。既存環境で旧 ID がログに出ても、
+旧名の Secret や Namespace を新しく作るわけではない。
+他の管理者との競合を一括 `--force-conflicts` で上書きしない。

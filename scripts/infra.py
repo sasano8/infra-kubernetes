@@ -291,7 +291,8 @@ def knative_field_manager(cluster):
     # Retain the original ID in old installations to avoid taking over its fields.
     for namespace in ("knative-serving", "kourier-system"):
         result = cluster.call("get", "deployments", "-n", namespace, "--ignore-not-found",
-                              "-o", "json", "--request-timeout=10s", capture_output=True, text=True)
+                              "-o", "json", "--show-managed-fields=true", "--request-timeout=10s",
+                              capture_output=True, text=True)
         resources = json.loads(result.stdout) if result.stdout.strip() else {}
         if any(field.get("manager") == "sas47-upstream"
                for resource in resources.get("items", [])

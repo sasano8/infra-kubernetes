@@ -214,7 +214,7 @@ def tls_manager_migration(cluster):
     legacy = False
     for name in ("issuer/cloudflare-letsencrypt", "certificate/standard-tls", "certificate/knative-wildcard-tls"):
         result = cluster.call("get", name, "-n", "test", "--ignore-not-found", "-o", "json",
-                              capture_output=True, text=True)
+                              "--show-managed-fields=true", capture_output=True, text=True)
         if not result.stdout.strip():
             continue
         resource = json.loads(result.stdout)

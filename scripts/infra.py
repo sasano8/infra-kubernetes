@@ -115,7 +115,7 @@ class Cluster:
         return run(self.command + list(args), **kwargs)
 
     def get(self, *args):
-        return json.loads(self.call(*args, "-o", "json", capture_output=True, text=True).stdout)
+        return json.loads(self.call("get", *args, "-o", "json", capture_output=True, text=True).stdout)
 
 
 def fetch(url, destination):

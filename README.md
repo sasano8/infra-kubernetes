@@ -20,6 +20,9 @@ Gateway API CRD・Helm は追加しない。Gateway API 自体の評価は含ま
 
 ## 新規 VM に一括インストール
 
+AWS の `dnf` 環境で使う、設定をリダイレクトで配置する手順は
+[AWS VM での初回構築](docs/aws-setup.md)を参照。
+
 対象は **専用の新規 Linux VM（systemd、amd64 / arm64）**。
 Ubuntu 24.04 LTS を想定。目安は 4 vCPU / 8 GiB RAM / 30 GiB ディスク。
 Python 3.10 以上、curl、CA 証明書、Git、sudo を事前に用意する。

@@ -92,6 +92,8 @@ date -u +%FT%TZ > .local/results/recovered-at.txt
 
 ## 問題の切り分け
 
+webhook のタイムアウト時は [確認スクリプト](webhook-diagnostics.md)で状態をまとめて取得できる。
+
 ```bash
 k -n sas47-kong get pods,svc
 k -n sas47-kong logs deployment/kong --tail=100

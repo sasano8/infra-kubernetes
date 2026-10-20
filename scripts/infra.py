@@ -182,7 +182,14 @@ def install_host():
         run(["install", "-m", "0600", config_source, config_target])
     if not service.exists():
         run([binary, "install", "controller", "--single", "--config", config_target])
-    run([binary, "start"])
+    status = subprocess.run(
+        ["systemctl", "is-active", "--quiet", "k0scontroller.service"],
+        check=False,
+    )
+    if status.returncode != 0:
+        run([binary, "start"])
+    else:
+        print("k0s は起動済みです。API / Node の確認に進みます。", flush=True)
     cluster = Cluster(f"{binary} kubectl")
     deadline = time.monotonic() + 300
     while True:

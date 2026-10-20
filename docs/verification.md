@@ -8,7 +8,7 @@ VM で実施する手順。現時点では未実施で、成功結果は記録�
 
 ## 入口と通常リクエスト
 
-### 1コマンドで2経路を確認する
+### 1コマンドで2経路とスケールゼロ復帰を確認する
 
 リポジトリのルートで次を実行する。Python 標準ライブラリのみを使用する。
 
@@ -23,12 +23,21 @@ sudo python3 scripts/check-routes.py
 両方が200で、本文がそれぞれ `standard-service` / `knative-service` なら成功。
 どちらかが失敗したら終了コード1。終了・失敗・Ctrl-C 時には自身が起動した
 port-forward を停止する。既存の8080番の port-forward は停止しない。
-スケールゼロへの待機と復帰確認は行わない。
+続いて「Pod がゼロ件になるまで待機します」と表示し、5秒間隔で Pod 数を取得する。
+Terminating / Error の Pod も残っている間はゼロと扱わない。
+待機中は Knative に HTTP リクエストを送らず、Pod が0件になった後、同じ Kong 入口へ
+リクエストして HTTP 200・`knative-service` と Ready Pod の再生成を確認する。
+すべて成功すれば `3/3 成功`。待機上限は既定600秒で、API エラーや期限切れは失敗とする。
+Knative の初回リクエストが失敗した場合、復帰確認はスキップし終了コード1を返す。
+実行中は別ターミナルや監視から Knative にアクセスしないこと。
 
 ```bash
 # ポート変更、または通常の kubectl を使う場合
 sudo python3 scripts/check-routes.py --port 18081
 python3 scripts/check-routes.py --kubectl kubectl
+
+# ゼロになるまで最大15分待機する場合
+sudo python3 scripts/check-routes.py --scale-zero-timeout 900
 
 # 証跡を残す場合
 mkdir -p .local/results

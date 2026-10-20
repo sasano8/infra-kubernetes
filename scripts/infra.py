@@ -34,19 +34,26 @@ def run(args, **kwargs):
 
 def load(path):
     c = json.loads(path.read_text())
+    if "domain" in c:
+        if "knative_domain" in c:
+            raise ValueError("domain と knative_domain は同時に指定できません")
+        c["knative_domain"] = c.pop("domain")
+    c.setdefault("base_domain", None)
     expected = set(json.loads((ROOT / "configs/environment/example.json").read_text()))
     if set(c) != expected:
         raise ValueError(f"設定キーは {sorted(expected)} を指定してください")
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
-    for key in ("domain", "standard_host", "kourier_service"):
+    for key in ("base_domain", "knative_domain", "standard_host", "kourier_service"):
         value = c[key]
+        if key == "base_domain" and value is None:
+            continue
         if not isinstance(value, str) or len(value) > 253 or not all(
             re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", x)
             for x in value.split(".")
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    host = "sas47-apps--serverless." + c["domain"]
+    host = "sas47-apps--serverless." + c["knative_domain"]
     if len(host) > 253 or host == c["standard_host"]:
         raise ValueError("Knative と通常 Service のホスト名を区別してください（最大253文字）")
     port = c["node_port"]
@@ -63,7 +70,8 @@ def configure(path):
     c = json.loads((ROOT / "configs/environment/example.json").read_text())
     prompts = {
         "mode": "新規 VM=new-host / 既存クラスタ=existing",
-        "domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
+        "base_domain": "ベースドメイン（参照情報。各経路は個別指定）",
+        "knative_domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
         "standard_host": "通常 Service の Host",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
@@ -85,7 +93,7 @@ def configure(path):
 
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
-    values = dict(c, knative_host="sas47-apps--serverless." + c["domain"])
+    values = dict(c, knative_host="sas47-apps--serverless." + c["knative_domain"])
     values.update(
         config_hash=hashlib.sha256(
             json.dumps(c, sort_keys=True).encode()
@@ -332,7 +340,7 @@ def deploy(cluster, c, output):
     cluster.call("rollout", "status", "deployment/standard", "-n", "sas47-apps", "--timeout=300s")
     cluster.call("wait", "ksvc/serverless", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=300s")
     service = cluster.get("ksvc/serverless", "-n", "sas47-apps")
-    expected = "http://sas47-apps--serverless." + c["domain"]
+    expected = "http://sas47-apps--serverless." + c["knative_domain"]
     if service.get("status", {}).get("url") != expected:
         raise ValueError(f"Knative URL が {expected} と異なります。既存ドメイン・TLS・namespace selector を確認してください")
     cluster.call("apply", "-f", output / "kong.yaml")

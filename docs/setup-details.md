@@ -65,7 +65,7 @@ Release マニフェストは HTTPS で取得し、k0s バイナリは SHA-256 �
 
 ## 既存クラスタに追加
 
-設定の `mode` を `existing` にし、`domain` を既存 Knative のドメインに合わせる。
+設定の `mode` を `existing` にし、`knative_domain` を既存 Knative のドメインに合わせる。
 `kourier_service` は **外部向け HTTP listener（80番）を持つ** Kourier Service の
 クラスタ内 DNS 名にする。`kourier-internal` には向けない。
 Knative の上記 domain-template、HTTP、スケールゼロが有効な環境を前提にする。
@@ -88,7 +88,8 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | 設定項目 | 意味 |
 | --- | --- |
 | `mode` | `new-host` / `existing` |
-| `domain` | Knative ドメイン。新規構築時は config-domain に設定 |
+| `base_domain` | 任意の共通ベースドメイン。省略 / null 可。参照情報であり DNS やルーティングは設定しない |
+| `knative_domain` | Knative ドメイン。新規構築時は config-domain に設定 |
 | `standard_host` | 通常 Service の Host |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
@@ -199,3 +200,7 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 - [Kourier](https://github.com/knative-extensions/net-kourier)
 - [Kong DB-less](https://developer.konghq.com/gateway/db-less-mode/)
 - [Kong Route / preserve_host](https://developer.konghq.com/gateway/entities/route/)
+
+各経路は個別指定し、`base_domain` からの自動生成やサブドメインの強制はしない。
+旧 `domain` は `knative_domain` の別名として使用可能。同時指定はエラー。
+既存設定に `base_domain` を追加する必要はない。

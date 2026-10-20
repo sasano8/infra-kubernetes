@@ -27,9 +27,14 @@ def main():
     if not 1 <= args.port <= 65535 or min(args.timeout, args.scale_zero_timeout, args.poll_interval) <= 0:
         parser.error("port must be 1..65535 and all timeouts/intervals must be positive")
     config = json.loads(args.config.read_text())
+    if "domain" in config and "knative_domain" in config:
+        parser.error("domain と knative_domain は同時に指定できません")
+    knative_domain = config.get("knative_domain", config.get("domain"))
+    if not isinstance(knative_domain, str) or not knative_domain:
+        parser.error("knative_domain を指定してください（旧 domain も使用可能）")
     cases = [
         ("standard", config["standard_host"], "standard-service"),
-        ("knative", "sas47-apps--serverless." + config["domain"], "knative-service"),
+        ("knative", "sas47-apps--serverless." + knative_domain, "knative-service"),
     ]
     command = shlex.split(args.kubectl)
     if not command:

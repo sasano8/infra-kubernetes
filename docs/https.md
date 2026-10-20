@@ -35,17 +35,23 @@ HTTPS と、DNS の53番 TCP/UDPでの問い合わせが必要。
 
 ## 2. Cloudflare API トークンを配置
 
-Cloudflare の API Tokens で、対象ゾーン `ys-method-dev.com` に限定した次の権限を設定する。
+[My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens) で
+**Create Token → Edit zone DNS** テンプレートを選び、次を設定する。
 
 - Zone → DNS → Edit
 - Zone → Zone → Read
+- Zone Resources: Include → Specific zone → `ys-method-dev.com`
 
-VM 上のリポジトリのルートで、非表示入力からトークンファイルを作る。
-値をコマンド引数・チャット・Git に貼らない。
+**Continue to summary → Create Token** で API トークンを発行する。
+Global API Key は使わない。トークンはチャット・Git に貼らない。
+
+EC2 のリポジトリのルートで、生成ディレクトリとファイルの所有者・権限を整え、非表示入力で保存する。
 
 ```bash
-mkdir -p .local/secrets
-chmod 700 .local/secrets
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
+sudo touch .local/secrets/cloudflare-api-token
+sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
+sudo chmod 600 .local/secrets/cloudflare-api-token
 (
   umask 077
   read -r -s -p 'Cloudflare API token: ' cf_api_token
@@ -53,7 +59,6 @@ chmod 700 .local/secrets
   printf '%s' "$cf_api_token" > .local/secrets/cloudflare-api-token
   unset cf_api_token
 )
-chmod 600 .local/secrets/cloudflare-api-token
 ```
 
 `.local/` は Git 管理外。スクリプトはこのファイルから

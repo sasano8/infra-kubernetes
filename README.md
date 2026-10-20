@@ -105,7 +105,7 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
 
 DNS-01 のため証明書発行用に80番を開ける必要はない。
 既存 Caddy が443番を使用していれば自動停止せずエラーにする。
-[証明書・DNS・更新の詳細](docs/https.md) / [Tunnel を使う別構成](docs/cloudflare.md)
+[Cloudflare API の取得・設定手順](docs/cloudflare.md) / [証明書・更新の詳細](docs/https.md)
 
 ## 詳細
 

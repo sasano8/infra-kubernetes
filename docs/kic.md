@@ -66,7 +66,7 @@ Ingress 自体の名前は `standard` / `hello` を維持し、旧ホストの�
 `sudo python3 scripts/check-routes.py` で新しい Namespace の経路を確認する。
 KIC の監視対象・Ingress・証明書の配置・確認スクリプトも新しい名前を使用する。
 通常経路の Kubernetes Service / Deployment 名は `hello-ssvc` とし、同じ `test` Namespace に置く。
-Cloudflare Tunnel を使っている場合は公開ホスト名も変更する。
+外部公開用 DNS も現在のホスト名に合わせる。
 
 旧 Namespace（`sas47-apps` / `hello-apps`）は自動削除せず、旧リソースを残す。
 新しい経路が動作することを確認し、旧 Namespace に残すべきリソースがないと確認できたら

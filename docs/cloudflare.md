@@ -1,146 +1,94 @@
-# Cloudflare Tunnel による公開
+# Cloudflare API を使った証明書の自動発行・更新
 
-これは Tunnel を使う別構成。Caddy と同じ DNS-01 自動発行を Kong で使う場合は
-[HTTPS の直接公開](https.md)を参照する。
-DNS-01 で Kong 用の証明書を取得しても、Tunnel の Cloudflare エッジ証明書の範囲は変わらない。
-
-VM 内の経路確認後、Cloudflare Tunnel で Kong を公開する任意の手順。
-この手順の外部公開は未実施。Cloudflare アカウント・対象 DNS ゾーンの管理権限が必要。
-HTTP のアプリは外部からアクセス可能になる。認証の追加はこの最小検証の対象外。
+cert-manager が Cloudflare API で DNS-01 検証用の TXT レコードを作り、
+Let's Encrypt が証明書を発行する。KIC が証明書 Secret を Kong に反映する。
+Cloudflare は DNS の管理・検証に使い、HTTPS は EC2 の Kong で終端する。
 
 ```mermaid
 flowchart LR
-    Client[クライアント] -->|HTTPS| CF[Cloudflare]
-    CF --> Tunnel[Cloudflare Tunnel]
-    Tunnel -->|HTTP / Host 保持| Kong
+    Internet[インターネット] -->|HTTPS :443| Kong
     Kong --> Standard[通常 Service]
     Kong --> Kourier --> Knative[Knative Service]
 ```
 
-HTTPS は Cloudflare で終端し、同じ EC2 上の cloudflared から Kong へ HTTP で転送する。
-既存の Caddy や本番 DNS レコードには手を加えない。
-同名の既存レコードがある場合は上書きせず、別の検証用名を設定する。
+## 1. Cloudflare API トークンを取得
 
-## 1. Kong の NodePort を設定
+[My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens) を開き、
+**Create Token → Edit zone DNS** テンプレートを選ぶ。
 
-`configs/environment/local.json` の `node_port` を `30081` にする。
-ホスト名は README の設定を前提にする。
+| 設定 | 値 |
+| --- | --- |
+| Permissions | Zone → DNS → Edit、Zone → Zone → Read |
+| Zone Resources | Include → Specific zone → `ys-method-dev.com` |
 
-```bash
-sudo ./bin/infra deploy --kubectl 'k0s kubectl'
-sudo k0s kubectl -n kong-system get service kong-proxy
-sudo k0s kubectl get nodes -o wide
-```
+**Continue to summary → Create Token** で発行してコピーする。
+Global API Key ではなく API トークンを使う。トークンをチャットや Git に貼らない。
 
-Node の InternalIP を転送先に使う。ここでは例を `172.31.4.180` とするが、
-新しい EC2 では実際の値に置き換える。
-cloudflared は同じホストから接続するので、セキュリティグループに30081番の
-インターネット向け受信許可を追加する必要はない。
-NodePort はノードのインターフェースで待ち受けるため、既存の広い受信許可がないことも確認する。
-ホストのファイアウォールでは同じホストからの接続を許可する。
+## 2. トークンを EC2 に配置
 
-## cloudflared の導入
-
-Amazon Linux の `dnf` 環境では、Cloudflare の公式 RPM リポジトリを登録する。
-パッケージの署名検証は有効のまま使用する。
+EC2 のリポジトリのルートで実行する。
+既に sudo で構築済みでも書き込めるよう、生成ディレクトリの所有者をログインユーザーに揃える。
 
 ```bash
-curl --fail --silent --show-error --location \
-  https://pkg.cloudflare.com/cloudflared-ascii.repo \
-  -o /tmp/cloudflared.repo
-sudo install -m 0644 /tmp/cloudflared.repo /etc/yum.repos.d/cloudflared.repo
-sudo dnf install -y cloudflared
-cloudflared --version
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
+sudo touch .local/secrets/cloudflare-api-token
+sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
+sudo chmod 600 .local/secrets/cloudflare-api-token
+(
+  umask 077
+  read -r -s -p 'Cloudflare API token: ' cf_api_token
+  printf '\n'
+  printf '%s' "$cf_api_token" > .local/secrets/cloudflare-api-token
+  unset cf_api_token
+)
 ```
 
-OS に対応する導入方法は [公式パッケージ案内](https://pkg.cloudflare.com/index.html)も参照。
-トンネルには Cloudflare への送信通信が必要。
-通常は7844番の UDP（QUIC）または TCP（HTTP/2）を使用する。
-EC2 の受信 SSH 以外に、トンネル用の受信ポートを開く必要はない。
+貼り付けても入力は表示されない。Enter で確定する。
 
-## 3. トンネルを作成して接続
+## 3. DNS と EC2 の設定
 
-Cloudflare ダッシュボードの **Networking → Tunnels** から Cloudflared トンネルを作成する。
+以下の A レコードを **DNS only** で EC2 のパブリック IP に向ける。
 
-Linux の実行環境を選択し、画面に表示されるサービス登録コマンドを EC2 で実行する。
-形式は `sudo cloudflared service install <トンネルトークン>`。
-実際のトークンは Cloudflare から取得し、チャットや Git に保存しない。
-サービスの状態を確認する。
+- `standard.tmp.ys-method-dev.com`
+- `*.standard.tmp.ys-method-dev.com`
+- `knative.tmp.ys-method-dev.com`
+- `*.knative.tmp.ys-method-dev.com`
+
+EC2 の443/TCPを検証元から許可する。DNS-01 のため、証明書発行用の80番受信許可は不要。
+Cloudflare のエッジ証明書や多段サブドメインの Universal SSL 設定は使わない。
+
+## 4. TLS を有効化して構築
+
+`configs/environment/local.json` に次を追加する。メールアドレスは自分の連絡先に変更する。
+
+```json
+"tls": {
+  "enabled": true,
+  "email": "you@example.com",
+  "cloudflare_zone": "ys-method-dev.com",
+  "host_https_port": 443
+}
+```
 
 ```bash
-sudo systemctl enable --now cloudflared
-sudo systemctl status cloudflared --no-pager
+git pull origin main
+sudo ./bin/infra validate --require-https
+sudo ./bin/infra up --require-https
 ```
 
-Cloudflare 側でコネクタが Healthy になったことを確認する。
-cloudflared はホスト上で起動し、k0s 内の Pod としては追加しない。
+設定とトークンを事前検証し、cert-manager 導入・証明書発行・Kong の443番公開まで行う。
+更新は cert-manager が自動で行うため、Cloudflare トークンを有効に保つ。
 
-## 4. 公開ホスト名を2つ登録
-
-トンネルの Published application routes / Public Hostnames に次を登録する。
-
-| 公開ホスト名 | サービス種別 | URL（実際の EC2 InternalIP に置換） |
-| --- | --- | --- |
-| `hello-test-ssvc.standard.tmp.ys-method-dev.com` | HTTP | `172.31.4.180:30081` |
-| `hello-test-ksvc.knative.tmp.ys-method-dev.com` | HTTP | `172.31.4.180:30081` |
-
-Cloudflare の Service 設定で Type と URL が別欄なら、URL に `http://` を重複入力しない。
-Origin の **HTTP Host Header は空欄**にして、クライアントの Host を保持する。
-片方の Host に固定するともう片方の経路が動かなくなる。
-`base_domain` は管理用情報なので、そこに自動で公開ルートを作るわけではない。
-
-新しい公開ホスト名の DNS が対象トンネルへ向いていることを確認する。
-EC2 のパブリック IP を指す A レコードは不要。
-
-## 5. Cloudflare の証明書を確認
-
-DNS ゾーンが `ys-method-dev.com` なら、標準の Universal SSL は通常そのゾーンの
-ルートと1階層のサブドメインを対象とする。
-今回の2つの多段サブドメインは、それだけではカバーされない。
-「トンネルが Healthy」「DNS が登録済み」だけでは HTTPS の準備完了ではない。
-
-Cloudflare の SSL/TLS → Edge Certificates で、両ホスト名に対応する証明書が
-Active であることを確認する。契約・ゾーン構成に応じて Advanced Certificate Manager の
-Total TLS や個別の証明書を利用する。
-ワイルドカードも通常1階層にだけ一致し、`*.tmp.ys-method-dev.com` は
-`hello-test-ksvc.knative.tmp.ys-method-dev.com` をカバーしない。
-
-証明書の追加を避けるなら、Cloudflare 管理ゾーン直下でカバー可能な別の名前を選び、
-`standard_domain` と `knative_domain`、公開ホスト名を一緒に見直す。
-TLS 検証を無効にして問題を回避しない。
-
-## 6. 公開経路を確認
+## 5. 確認
 
 ```bash
 curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
 curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+sudo python3 scripts/check-routes.py
 ```
 
-期待する本文はそれぞれ `standard-service` / `knative-service`。
-既存の `scripts/check-routes.py` は VM 内の port-forward 経路を検証するもので、
-この外部 DNS・Cloudflare・HTTPS の確認を置き換えるものではない。
+期待する本文は `standard-service` / `knative-service`。
+確認スクリプトは VM 内の HTTP 2経路とスケールゼロ復帰を確認する。
+外部 HTTPS は上記の curl で証明書を検証したまま確認する。
 
-502 の場合は VM 上で Host を付けて `http://<InternalIP>:30081/` を確認する。
-Kong の404なら Host と Kong ルートの一致、TLS エラーならエッジ証明書を確認する。
-Access を別途有効化した場合、curl に認証が必要になる。
-
-## 撤去
-
-今回追加したトンネルの公開ルートと対応する DNS レコードを削除する。
-専用トンネルなら、そのコネクタとホスト上のサービスも削除する。
-既存の共有トンネルや Caddy の本番経路は削除しない。
-
-```bash
-# 今回作成した専用 cloudflared サービスだけが対象
-sudo cloudflared service uninstall
-```
-
-`node_port` を `null` に戻して再配備する。
-
-```bash
-sudo ./bin/infra deploy --kubectl 'k0s kubectl'
-```
-
-ClusterIP への変更時に既存 nodePort の保持が原因で拒否された場合は、
-検証専用 Service `kong-system/kong-proxy` だけを削除してから同じ deploy を実行する。
-この操作の間、検証入口は一時停止する。
+完全な設定例、証明書の対象、発行状況・更新・撤去は [HTTPS の詳細](https.md) を参照。

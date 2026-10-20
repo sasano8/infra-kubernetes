@@ -1,0 +1,4 @@
+/configs/environment/local.json
+/.local/
+__pycache__/
+*.pyc

@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standard
+  namespace: sas47-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: standard}
+  template:
+    metadata:
+      labels: {app: standard}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: http
+          image: hashicorp/http-echo:1.0.0
+          args: ["-listen=:8080", "-text=standard-service"]
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: standard
+  namespace: sas47-apps
+spec:
+  selector: {app: standard}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: serverless
+  namespace: sas47-apps
+  annotations:
+    networking.knative.dev/ingress-class: kourier.ingress.networking.knative.dev
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/max-scale: "2"
+        autoscaling.knative.dev/window: "30s"
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 120
+      containers:
+        - name: http
+          image: hashicorp/http-echo:1.0.0
+          args: ["-listen=:8080", "-text=knative-service"]
+          ports:
+            - {containerPort: 8080}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}

@@ -1,0 +1,8 @@
+# New-host only. Existing Kourier ports and production routes are never patched.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kourier
+  namespace: kourier-system
+spec:
+  type: ClusterIP

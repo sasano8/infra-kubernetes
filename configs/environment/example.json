@@ -1,0 +1,7 @@
+{
+  "mode": "new-host",
+  "domain": "example.test",
+  "standard_host": "standard.example.test",
+  "kourier_service": "kourier.kourier-system.svc.cluster.local",
+  "node_port": null
+}

@@ -1,0 +1,10 @@
+# Host-native subset of infra-k0s/configs/kube/k0s.yaml.
+# Argo CD and Vault Helm extensions are intentionally excluded from SAS-47.
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+metadata:
+  name: k0s
+spec:
+  network:
+    kuberouter:
+      metricsPort: 8081

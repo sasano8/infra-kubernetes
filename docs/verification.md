@@ -8,6 +8,36 @@ VM で実施する手順。現時点では未実施で、成功結果は記録�
 
 ## 入口と通常リクエスト
 
+### 1コマンドで2経路を確認する
+
+リポジトリのルートで次を実行する。Python 標準ライブラリのみを使用する。
+
+```bash
+git pull origin main
+sudo python3 scripts/check-routes.py
+```
+
+`configs/environment/local.json` のドメイン設定を読み、Kong の port-forward を
+127.0.0.1:18080 で起動する。ログは別スレッドで読み取り、転送開始を待ってから
+両経路の HTTP ステータスと本文を検証する。
+両方が200で、本文がそれぞれ `standard-service` / `knative-service` なら成功。
+どちらかが失敗したら終了コード1。終了・失敗・Ctrl-C 時には自身が起動した
+port-forward を停止する。既存の8080番の port-forward は停止しない。
+スケールゼロへの待機と復帰確認は行わない。
+
+```bash
+# ポート変更、または通常の kubectl を使う場合
+sudo python3 scripts/check-routes.py --port 18081
+python3 scripts/check-routes.py --kubectl kubectl
+
+# 証跡を残す場合
+mkdir -p .local/results
+set -o pipefail
+sudo python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
+```
+
+### 手動で確認する場合
+
 VM のターミナル A:
 
 ```bash

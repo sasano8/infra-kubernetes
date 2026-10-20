@@ -247,8 +247,20 @@ def apply_serving_core(cluster, source):
     # Use kubectl to decode the official YAML; no additional Python YAML dependency.
     converted = cluster.call("create", "--dry-run=client", "--validate=false", "-f", source,
                              "-o", "json", capture_output=True, text=True)
-    manifest = json.loads(converted.stdout)
-    resources = manifest["items"] if manifest.get("kind") == "List" else [manifest]
+    # Depending on kubectl's version/input, output may be a List or consecutive
+    # pretty-printed JSON objects. Decode the complete stream, including all objects.
+    decoder = json.JSONDecoder()
+    text = converted.stdout
+    offset = 0
+    resources = []
+    while offset < len(text):
+        if text[offset].isspace():
+            offset += 1
+            continue
+        manifest, offset = decoder.raw_decode(text, offset)
+        resources.extend(manifest["items"] if manifest.get("kind") == "List" else [manifest])
+    if not resources:
+        raise ValueError("Serving マニフェストの JSON 変換結果が空です")
     retained = []
     for resource in resources:
         kind = resource["kind"]

@@ -93,10 +93,18 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
 
 ```bash
 git pull origin main
-sudo ./bin/infra up
+sudo ./bin/infra validate --require-https
+sudo ./bin/infra up --require-https
 ```
 
 新規 VM でも既存の専用 VM でも同じコマンド。
+`validate` は JSON の形式・重複キー・必須項目・ドメイン名・ポート・TLS 設定を検証し、
+トークンファイルの有無・権限・空でないことを確認する。
+ファイルがない場合だけ、既存クラスタの所有ラベル付き Secret のキー名を確認して再利用する。
+Secret 値は取得しない。新規 VM ではトークンファイルが必要。
+`--require-https` は TLS 未設定・無効をエラーにし、HTTP のみで進むことを防ぐ。
+`up` / `deploy` も、ダウンロードやクラスタ変更を始める前に同じ事前検証を行う。
+トークンの実際の API 権限・DNS 伝播・証明書発行の成否は、構築時に別途確認する。
 TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SHA-256 を確認して導入する。
 既に所有ラベルのない cert-manager Namespace が存在すれば本体を更新せず、
 標準名の3 Deployment と必要 CRD の準備を確認して使用する。

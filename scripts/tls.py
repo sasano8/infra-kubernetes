@@ -122,28 +122,60 @@ def install_manager(cluster, fetch):
         cluster.call("rollout", "status", f"deployment/{name}", "-n", "cert-manager", "--timeout=300s")
 
 
-def ensure_token(cluster, config):
-    # Query metadata/key names only. Existing credential values are never dumped.
-    template = '{{index .metadata.labels "infra.sasano8.dev/owner"}}:{{range $k,$v := .data}}{{$k}},{{end}}'
-    found = cluster.call("get", "secret/sas47-cloudflare-api-token", "-n", "test",
-                         "--ignore-not-found", "-o", "go-template=" + template,
-                         capture_output=True, text=True)
-    present = found.stdout.strip()
-    if present and not present.startswith("sas47:"):
-        raise ValueError("所有ラベルのない既存 Cloudflare Secret は上書きしません")
+def token_file(config):
     path = Path(config["tls"]["cloudflare_token_file"])
-    if not path.is_absolute():
-        path = ROOT / path
+    return path if path.is_absolute() else ROOT / path
+
+
+def read_token_file(config):
+    path = token_file(config)
     if not path.exists():
-        if present.startswith("sas47:") and "api-token," in present:
-            print("登録済みの Cloudflare Secret を使用します。", flush=True)
-            return
-        raise ValueError(f"Cloudflare トークンファイルを mode 600 で配置してください: {path}")
+        return None
     if not path.is_file() or stat.S_IMODE(path.stat().st_mode) & 0o077:
-        raise ValueError("Cloudflare トークンファイルは通常ファイル・権限600で配置してください")
+        raise ValueError(f"Cloudflare トークンファイルは通常ファイル・権限600で配置してください: {path}")
     token = path.read_text().strip()
     if not token or any(char.isspace() for char in token):
         raise ValueError("Cloudflare トークンファイルが空、または空白を含んでいます")
+    return token
+
+
+def existing_token(cluster):
+    # Query metadata/key names only. Existing credential values are never dumped.
+    template = 'present:{{with .metadata.labels}}{{index . "infra.sasano8.dev/owner"}}{{end}}:{{range $k,$v := .data}}{{$k}},{{end}}'
+    found = cluster.call("get", "secret/sas47-cloudflare-api-token", "-n", "test",
+                         "--ignore-not-found", "--request-timeout=10s", "-o", "go-template=" + template,
+                         capture_output=True, text=True, timeout=15)
+    present = found.stdout.strip()
+    if present and not present.startswith("present:sas47:"):
+        raise ValueError("所有ラベルのない既存 Cloudflare Secret は上書きしません")
+    return bool(present and "api-token" in present.split(":", 2)[2].split(","))
+
+
+def preflight(config, cluster=None):
+    if read_token_file(config) is not None:
+        print("Cloudflare トークンファイルの事前検証: OK（値は非表示）", flush=True)
+        return
+    if cluster is not None:
+        try:
+            if existing_token(cluster):
+                print("登録済み Cloudflare Secret の事前確認: OK（値は取得しません）", flush=True)
+                return
+        except (OSError, subprocess.SubprocessError):
+            raise ValueError("トークンファイルがなく、既存 Secret も確認できませんでした。"
+                             f"クラスタ接続を確認するか、{token_file(config)} に権限600で配置してください。"
+                             "手順: docs/https.md") from None
+    raise ValueError(f"Cloudflare トークンがありません。{token_file(config)} に権限600で配置してください。"
+                     "インストールは開始していません。手順: docs/https.md")
+
+
+def ensure_token(cluster, config):
+    present = existing_token(cluster)
+    token = read_token_file(config)
+    if token is None:
+        if present:
+            print("登録済みの Cloudflare Secret を使用します。", flush=True)
+            return
+        raise ValueError(f"Cloudflare トークンファイルを権限600で配置してください: {token_file(config)}")
     resource = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
                 "metadata": {"name": "sas47-cloudflare-api-token", "namespace": "test", "labels": OWNER},
                 "data": {"api-token": base64.b64encode(token.encode()).decode()}}

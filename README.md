@@ -46,6 +46,9 @@ sudo ./bin/infra up
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
 `standard_domain` は通常経路のベースドメインとして個別指定する。
 
+設定だけを確認する場合は `sudo ./bin/infra validate`。
+`up` も開始時に設定と必要なトークンを検証し、不足していれば構築前に停止する。
+
 Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の順に揃える。
 
 | 種類 | リソース名 | 公開ホスト名 |
@@ -92,7 +95,8 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
 4. 構築・更新して確認する。
 
    ```bash
-   sudo ./bin/infra up
+   sudo ./bin/infra validate --require-https
+   sudo ./bin/infra up --require-https
    curl --fail-with-body https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
    curl --fail-with-body https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
    ```

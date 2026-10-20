@@ -101,6 +101,12 @@ domain-template が前提と異なれば停止し、自動修正しない。
 # クラスタに触れずにマニフェストだけ出力
 ./bin/infra render
 
+# 設定と必要な認証情報の配置を確認（クラスタ変更なし）
+sudo ./bin/infra validate
+
+# HTTPS の設定漏れもエラーにする
+sudo ./bin/infra validate --require-https
+
 # 起動済みクラスタにサンプルと Kong だけ再配備
 sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 ```

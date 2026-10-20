@@ -39,7 +39,17 @@ def run(args, **kwargs):
 
 
 def load(path):
-    c = json.loads(path.read_text())
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"設定項目が重複しています: {key}")
+            result[key] = value
+        return result
+
+    c = json.loads(path.read_text(), object_pairs_hook=unique_fields)
+    if not isinstance(c, dict):
+        raise ValueError("設定ファイルのルートは JSON オブジェクトにしてください")
     if "domain" in c:
         if "knative_domain" in c:
             raise ValueError("domain と knative_domain は同時に指定できません")
@@ -49,10 +59,16 @@ def load(path):
             raise ValueError("standard_host と standard_domain は同時に指定できません")
         c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
-    tls.normalize(c)
-    expected = set(json.loads((ROOT / "configs/environment/example.json").read_text()))
-    if set(c) != expected:
-        raise ValueError(f"設定キーは {sorted(expected)} を指定してください")
+    required = {"mode", "knative_domain", "standard_domain", "kourier_service", "node_port"}
+    missing = required - set(c)
+    unknown = set(c) - required - {"base_domain", "tls"}
+    if missing or unknown:
+        errors = []
+        if missing:
+            errors.append("必須項目がありません: " + ", ".join(sorted(missing)))
+        if unknown:
+            errors.append("未対応の項目: " + ", ".join(sorted(unknown)))
+        raise ValueError(" / ".join(errors))
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
     for key in ("base_domain", "knative_domain", "standard_domain", "kourier_service"):
@@ -73,6 +89,7 @@ def load(path):
         raise ValueError("node_port は null または 30000〜32767")
     if c["mode"] == "new-host" and c["kourier_service"] != "kourier.kourier-system.svc.cluster.local":
         raise ValueError("new-host の Kourier Service は kourier.kourier-system.svc.cluster.local 固定です")
+    tls.normalize(c)
     return c
 
 
@@ -454,10 +471,11 @@ def remove(cluster):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "render", "up", "deploy", "remove"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove"))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
+    parser.add_argument("--require-https", action="store_true", help="TLS が無効・未設定なら停止する")
     args = parser.parse_args()
     if args.action == "configure":
         configure(args.config)
@@ -466,10 +484,28 @@ def main():
         remove(Cluster(args.kubectl))
         return
     c = load(args.config)
+    if args.require_https and not c["tls"]["enabled"]:
+        raise ValueError("HTTPS を要求しましたが tls.enabled が true ではありません。docs/https.md を参照してください")
     if args.action == "render":
         render(c, args.output)
         return
     cluster = Cluster(args.kubectl)
+    if c["tls"]["enabled"]:
+        credential_cluster = cluster
+        if c["mode"] == "new-host" and args.kubectl == "kubectl":
+            # A fresh host has no API yet. An installed host may already hold a usable Secret.
+            credential_cluster = (Cluster("/usr/local/bin/k0s kubectl")
+                                  if Path("/usr/local/bin/k0s").is_file() else None)
+        tls.preflight(c, credential_cluster)
+    print("設定検証: OK", flush=True)
+    if c["tls"]["enabled"]:
+        print(f"TLS: 有効 / Cloudflare zone: {c['tls']['cloudflare_zone']} / "
+              f"HTTPS hostPort: {c['tls']['host_https_port']}", flush=True)
+    else:
+        print("TLS: 無効（443番への HTTPS 公開は設定しません）。HTTPS が必要なら --require-https を指定してください。", flush=True)
+    if args.action == "validate":
+        print("検証のみ完了しました。ダウンロード・インストール・クラスタ変更は行っていません。", flush=True)
+        return
     if args.action == "up" and c["mode"] == "new-host":
         render(c, args.output)
         cluster = install_host()
@@ -480,7 +516,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
             detail = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr

@@ -4,7 +4,8 @@ EC2 上に k0s・Kong・Knative を構築し、通常 Service と Knative の2�
 
 ```mermaid
 flowchart LR
-    HTTP[HTTP リクエスト] --> Kong
+    HTTP[HTTP リクエスト] -->|VM 内での確認| Kong
+    Internet[インターネット] --> Cloudflare --> Tunnel[Cloudflare Tunnel] --> Kong
     Kong --> Service[通常の Kubernetes Service]
     Kong --> Kourier --> Knative[Knative Service]
 ```
@@ -56,6 +57,38 @@ port-forward を自動で起動し、次を確認する。
 
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
 待機中は別のアクセスを止める。すべて成功すると `3/3 成功` と表示する。
+
+## Cloudflare で公開
+
+Cloudflare Tunnel を使う。EC2 の受信ポートや既存 Caddy の設定は変更しない。
+
+1. `configs/environment/local.json` の `node_port` を `30081` に変更して再配備する。
+
+   ```bash
+   sudo ./bin/infra deploy --kubectl 'k0s kubectl'
+   ```
+
+2. [cloudflared の導入手順](docs/cloudflare.md#cloudflared-の導入)に沿って EC2 に導入し、
+   Cloudflare の **Networking → Tunnels**（または Zero Trust の Tunnels）でトンネルを作る。
+   画面の Linux 向けサービス登録コマンドを EC2 で実行する。
+3. 次の公開ホスト名を登録し、両方の転送先を `http://<EC2 のプライベート IP>:30081` にする。
+   **HTTP Host Header は上書きしない**。
+
+   | 公開ホスト名 | 経路 |
+   | --- | --- |
+   | `standard.tmp.ys-method-dev.com` | 通常 Service |
+   | `sas47-apps--serverless.knative.tmp.ys-method-dev.com` | Kourier → Knative |
+
+4. 外部から確認する。
+
+   ```bash
+   curl --fail-with-body https://standard.tmp.ys-method-dev.com/
+   curl --fail-with-body https://sas47-apps--serverless.knative.tmp.ys-method-dev.com/
+   ```
+
+これらの多段サブドメインをカバーする Cloudflare のエッジ証明書が必要。
+通常の Universal SSL だけでは足りない場合がある。
+前提・トークンの扱い・証明書・撤去は [Cloudflare 公開手順](docs/cloudflare.md)を参照。
 
 ## 詳細
 

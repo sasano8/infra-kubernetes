@@ -72,7 +72,7 @@ Cloudflare Tunnel を使う。EC2 の受信ポートや既存 Caddy の設定は
    ```
 
 2. [cloudflared の導入手順](docs/cloudflare.md#cloudflared-の導入)に沿って EC2 に導入し、
-   Cloudflare の **Networking → Tunnels**（または Zero Trust の Tunnels）でトンネルを作る。
+   Cloudflare の **Networking → Tunnels** でトンネルを作る。
    画面の Linux 向けサービス登録コマンドを EC2 で実行する。
 3. 次の公開ホスト名を登録し、両方の転送先を `http://<EC2 のプライベート IP>:30081` にする。
    **HTTP Host Header は上書きしない**。

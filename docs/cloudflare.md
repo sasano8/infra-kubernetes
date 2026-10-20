@@ -56,9 +56,7 @@ EC2 の受信 SSH 以外に、トンネル用の受信ポートを開く必要�
 
 ## 3. トンネルを作成して接続
 
-Cloudflare ダッシュボードの **Networking → Tunnels**、または Zero Trust の
-**Networks → Connectors / Tunnels** から Cloudflared トンネルを作成する。
-画面名は UI の更新で異なる場合がある。
+Cloudflare ダッシュボードの **Networking → Tunnels** から Cloudflared トンネルを作成する。
 
 Linux の実行環境を選択し、画面に表示されるサービス登録コマンドを EC2 で実行する。
 形式は `sudo cloudflared service install <トンネルトークン>`。

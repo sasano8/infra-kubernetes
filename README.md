@@ -80,13 +80,13 @@ Cloudflare Tunnel を使う。EC2 の受信ポートや既存 Caddy の設定は
    | 公開ホスト名 | 経路 |
    | --- | --- |
    | `standard.tmp.ys-method-dev.com` | 通常 Service |
-   | `sas47-apps--serverless.knative.tmp.ys-method-dev.com` | Kourier → Knative |
+   | `sas47-apps-serverless.knative.tmp.ys-method-dev.com` | Kourier → Knative |
 
 4. 外部から確認する。
 
    ```bash
    curl --fail-with-body https://standard.tmp.ys-method-dev.com/
-   curl --fail-with-body https://sas47-apps--serverless.knative.tmp.ys-method-dev.com/
+   curl --fail-with-body https://sas47-apps-serverless.knative.tmp.ys-method-dev.com/
    ```
 
 これらの多段サブドメインをカバーする Cloudflare のエッジ証明書が必要。

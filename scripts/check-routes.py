@@ -39,7 +39,7 @@ def main():
         parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
     cases = [
         ("standard", standard_domain, "standard-service"),
-        ("knative", "sas47-apps--serverless." + knative_domain, "knative-service"),
+        ("knative", "sas47-apps-serverless." + knative_domain, "knative-service"),
     ]
     command = shlex.split(args.kubectl)
     if not command:

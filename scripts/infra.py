@@ -22,7 +22,7 @@ KNATIVE = "knative-v1.20.0"
 KONG_CHART = "2.47.0"
 # Published digest from Kong/charts gh-pages/index.yaml.
 KONG_CHART_SHA256 = "41679730cf7016c2d43e28176c2b5850a166d90f59e0003de7096318985a4696"
-TEMPLATE = "{{.Namespace}}--{{.Name}}.{{.Domain}}"
+TEMPLATE = "{{.Namespace}}-{{.Name}}.{{.Domain}}"
 OWNER = {"infra.sasano8.dev/owner": "sas47"}
 NAMESPACES = ("sas47-apps", "sas47-kong")
 MANIFESTS = {
@@ -62,7 +62,7 @@ def load(path):
             for x in value.split(".")
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    host = "sas47-apps--serverless." + c["knative_domain"]
+    host = "sas47-apps-serverless." + c["knative_domain"]
     if len(host) > 253 or host == c["standard_domain"]:
         raise ValueError("Knative と通常 Service のホスト名を区別してください（最大253文字）")
     port = c["node_port"]
@@ -102,7 +102,7 @@ def configure(path):
 
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
-    values = dict(c, knative_host="sas47-apps--serverless." + c["knative_domain"])
+    values = dict(c, knative_host="sas47-apps-serverless." + c["knative_domain"])
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
@@ -345,10 +345,20 @@ def deploy(cluster, c, output):
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/standard", "-n", "sas47-apps", "--timeout=300s")
     cluster.call("wait", "ksvc/serverless", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=300s")
-    service = cluster.get("ksvc/serverless", "-n", "sas47-apps")
-    expected = "http://sas47-apps--serverless." + c["knative_domain"]
-    if service.get("status", {}).get("url") != expected:
-        raise ValueError(f"Knative URL が {expected} と異なります。既存ドメイン・TLS・namespace selector を確認してください")
+    expected = "http://sas47-apps-serverless." + c["knative_domain"]
+    deadline = time.monotonic() + 180
+    while True:
+        service = cluster.get("ksvc/serverless", "-n", "sas47-apps", "--request-timeout=10s")
+        status = service.get("status", {})
+        ready = any(x.get("type") == "Ready" and x.get("status") == "True"
+                    for x in status.get("conditions", []))
+        if status.get("url") == expected and ready:
+            break
+        if time.monotonic() >= deadline:
+            raise ValueError(f"Knative URL / Ready が {expected} に更新されませんでした。"
+                             "ドメイン・TLS・namespace selector を確認してください")
+        print(f"Knative の URL / Ready 更新を待っています: {expected}", flush=True)
+        time.sleep(5)
     cluster.call("apply", "-f", output / "routes.yaml")
     cluster.call("apply", "-f", output / "kong.yaml")
     cluster.call("rollout", "status", "deployment/kong", "-n", "sas47-kong", "--timeout=300s")

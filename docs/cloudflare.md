@@ -78,7 +78,7 @@ cloudflared はホスト上で起動し、k0s 内の Pod としては追加し�
 | 公開ホスト名 | サービス種別 | URL（実際の EC2 InternalIP に置換） |
 | --- | --- | --- |
 | `standard.tmp.ys-method-dev.com` | HTTP | `172.31.4.180:30081` |
-| `sas47-apps--serverless.knative.tmp.ys-method-dev.com` | HTTP | `172.31.4.180:30081` |
+| `sas47-apps-serverless.knative.tmp.ys-method-dev.com` | HTTP | `172.31.4.180:30081` |
 
 Cloudflare の Service 設定で Type と URL が別欄なら、URL に `http://` を重複入力しない。
 Origin の **HTTP Host Header は空欄**にして、クライアントの Host を保持する。
@@ -99,7 +99,7 @@ Cloudflare の SSL/TLS → Edge Certificates で、両ホスト名に対応す�
 Active であることを確認する。契約・ゾーン構成に応じて Advanced Certificate Manager の
 Total TLS や個別の証明書を利用する。
 ワイルドカードも通常1階層にだけ一致し、`*.tmp.ys-method-dev.com` は
-`sas47-apps--serverless.knative.tmp.ys-method-dev.com` をカバーしない。
+`sas47-apps-serverless.knative.tmp.ys-method-dev.com` をカバーしない。
 
 証明書の追加を避けるなら、Cloudflare 管理ゾーン直下でカバー可能な別の名前を選び、
 `standard_domain` と `knative_domain`、公開ホスト名を一緒に見直す。
@@ -109,7 +109,7 @@ TLS 検証を無効にして問題を回避しない。
 
 ```bash
 curl --fail-with-body --max-time 180 https://standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://sas47-apps--serverless.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://sas47-apps-serverless.knative.tmp.ys-method-dev.com/
 ```
 
 期待する本文はそれぞれ `standard-service` / `knative-service`。

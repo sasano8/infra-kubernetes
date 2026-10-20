@@ -11,12 +11,12 @@ Docker は不要で、コンテナ実行には k0s 内蔵 containerd を使う�
 HTTP + Host → Kong (DB-less)
                 ├─ standard.example.test
                 │    └─ Service → Deployment → "standard-service"
-                └─ sas47-apps--serverless.example.test
+                └─ sas47-apps-serverless.example.test
                      └─ Kourier → Knative → "knative-service"
 ```
 
 Kong の `preserve_host: true` と Knative の
-`{{.Namespace}}--{{.Name}}.{{.Domain}}` を使う。
+`{{.Namespace}}-{{.Name}}.{{.Domain}}` を使う。
 Revision / Activator と連携する Kourier は維持する。
 Kong は DB-less のまま KIC で Ingress と TLS Secret を反映する。
 Gateway API CRD・Helm CLI・DB は追加しない。構成と移行は [KIC](kic.md) を参照。
@@ -209,4 +209,4 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 
 旧 `standard_host` は `standard_domain` の別名として使用可能。同時指定はエラー。
 `standard_domain` は指定名で直接ルーティングし、`knative_domain` は
-`namespace--name.knative_domain` の形式で使用する。
+`namespace-name.knative_domain` の形式で使用する。

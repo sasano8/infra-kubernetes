@@ -13,7 +13,7 @@ API トークンは KIC コンテナだけにマウントする。
 | Ingress | ホスト名 | バックエンド |
 | --- | --- | --- |
 | `sas47-apps/standard` | `standard_domain` | `standard` Service |
-| `sas47-apps/serverless` | `sas47-apps--serverless.<knative_domain>` | `kourier-proxy` Service |
+| `sas47-apps/serverless` | `sas47-apps-serverless.<knative_domain>` | `kourier-proxy` Service |
 
 `kourier-proxy` は `kourier_service` を指す ExternalName Service。
 Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の Service は変更しない。
@@ -48,6 +48,19 @@ Helm CLI・Helm release・PostgreSQL は追加しない。
 取得したパッケージは `.local/downloads/` にキャッシュし、再利用時にも digest を確認する。
 既存の異なる管理者と CRD のフィールドが競合した場合は強制上書きせず停止する。
 IngressClass・ClusterRole・ClusterRoleBinding の同名既存リソースは所有ラベルを確認する。
+
+## ホスト名の区切り変更
+
+Knative の Namespace とサービス名の区切りを `--` から `-` に変更した。
+新規構築、Kong Ingress、確認スクリプトは同じ新形式を使用する。
+本リポジトリで作成した専用 VM は `sudo ./bin/infra up` で設定を更新する。
+URL の反映と Ready を最大180秒待ってから、新しい Ingress を反映する。
+Cloudflare の公開ホスト名も新しい名前へ変更する。
+
+`mode=existing` では共通の domain-template を自動変更しない。
+共有クラスタでは他の Knative Service の URL にも影響するため、管理者が移行範囲を確認する。
+また、一般には Namespace とサービス名の組み合わせがハイフン1つだと衝突する場合がある。
+この検証の固定名では衝突しないが、複数サービスを追加するときは命名規則を確認する。
 
 ## HTTPS と cert-manager
 

@@ -65,15 +65,10 @@ Cloudflare の公開ホスト名も新しい名前へ変更する。
 ## HTTPS と cert-manager
 
 Kong は TLS listener 8443 と Service 443 を用意する。
-cert-manager の導入・Issuer・証明書発行・外部80/443番からの到達性は、この KIC 切り替えには含まない。
-まだ有効な公開証明書は発行していないため、この変更だけでは信頼される HTTPS は完成しない。
-
-次の段階で、各 Ingress に `spec.tls` と cert-manager の Issuer 注釈を追加する。
-TLS Secret は対応する Ingress と同じ `sas47-apps` Namespace に作成する。
-KIC がその Secret の証明書と更新を Kong に反映する。
-手作業で証明書ファイルを Kong にコピーしたり、Pod を再起動したりする必要はない。
-NodePort モードでは443番用の NodePort は Kubernetes が自動採番する。
-HTTP-01 を使う場合、単に NodePort を追加するだけでは外部80番への到達性は満たさない。
+`tls.enabled` を有効にすると cert-manager を導入し、Cloudflare DNS-01 で
+通常経路用と Knative ワイルドカード用の証明書を自動発行・更新する。
+Issuer・Certificate・TLS Secret は `sas47-apps` に置き、KIC が Kong に反映する。
+ホスト443番への公開も設定できる。詳細は [HTTPS](https.md) を参照。
 
 ## 状態確認
 

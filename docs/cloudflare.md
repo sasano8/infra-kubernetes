@@ -1,5 +1,9 @@
 # Cloudflare Tunnel による公開
 
+これは Tunnel を使う別構成。Caddy と同じ DNS-01 自動発行を Kong で使う場合は
+[HTTPS の直接公開](https.md)を参照する。
+DNS-01 で Kong 用の証明書を取得しても、Tunnel の Cloudflare エッジ証明書の範囲は変わらない。
+
 VM 内の経路確認後、Cloudflare Tunnel で Kong を公開する任意の手順。
 この手順の外部公開は未実施。Cloudflare アカウント・対象 DNS ゾーンの管理権限が必要。
 HTTP のアプリは外部からアクセス可能になる。認証の追加はこの最小検証の対象外。

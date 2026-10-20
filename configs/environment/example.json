@@ -4,5 +4,13 @@
   "knative_domain": "knative.example.test",
   "standard_domain": "standard.example.test",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
-  "node_port": null
+  "node_port": null,
+  "tls": {
+    "enabled": false,
+    "email": "",
+    "cloudflare_zone": "",
+    "cloudflare_token_file": ".local/secrets/cloudflare-api-token",
+    "acme_server": "https://acme-v02.api.letsencrypt.org/directory",
+    "host_https_port": 443
+  }
 }

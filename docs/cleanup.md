@@ -17,7 +17,7 @@ kubectl config current-context
 この Namespace に検証以外のワークロードを置かないこと。
 
 専用 IngressClass・ClusterRole・ClusterRoleBinding（各 `sas47-kong`）も所有ラベルを確認して削除する。
-Caddy、Knative、Kourier、共通設定、共有され得る Kong CRD、k0s は削除しない。
+Caddy、Knative、Kourier、共通設定、共有され得る Kong CRD、cert-manager 本体・CRD、k0s は削除しない。
 新規ホストで作った Knative / Kourier も残る。
 再配備には同じ設定で `deploy` または `up` を実行する。
 生成設定と `.local/` の証跡は調査用に残す。
@@ -38,3 +38,6 @@ sudo reboot
 再起動後、不要な `/usr/local/bin/k0s` と
 `/var/lib/infra-kubernetes/k0s-version` は管理者が削除する。
 インストーラや `remove` はこれらを自動実行しない。
+
+TLS 有効時は検証用 Namespace 内の Issuer・Certificate・Cloudflare トークン Secret も削除する。
+TXT レコードの後片付けのため、削除中は cert-manager を起動したままにする。

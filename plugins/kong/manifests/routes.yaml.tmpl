@@ -8,6 +8,7 @@ metadata:
     konghq.com/strip-path: "false"
 spec:
   ingressClassName: sas47-kong
+$standard_tls
   rules:
     - host: "$standard_domain"
       http:
@@ -45,6 +46,7 @@ metadata:
     konghq.com/strip-path: "false"
 spec:
   ingressClassName: sas47-kong
+$knative_tls
   rules:
     - host: "$knative_host"
       http:

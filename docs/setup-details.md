@@ -95,6 +95,7 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | `standard_domain` | 通常 Service の Host |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
+| `tls` | 省略時は無効。Cloudflare DNS-01・証明書更新・Kong の HTTPS 公開設定。詳細は [HTTPS](https.md) |
 
 ```bash
 # クラスタに触れずにマニフェストだけ出力

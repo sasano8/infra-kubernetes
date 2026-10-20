@@ -5,6 +5,7 @@ metadata:
   namespace: sas47-kong
 spec:
   replicas: 1
+$rollout_strategy
   selector:
     matchLabels: {app: sas47-kong}
   template:
@@ -29,7 +30,9 @@ spec:
           ports:
             - {name: proxy, containerPort: 8000}
             - {name: status, containerPort: 8100}
-            - {name: proxy-tls, containerPort: 8443}
+            - name: proxy-tls
+              containerPort: 8443
+$host_https_port_line
           readinessProbe:
             httpGet: {path: /status/ready, port: status}
             initialDelaySeconds: 5

@@ -6,7 +6,7 @@ Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反�
 ```mermaid
 flowchart LR
     HTTP[HTTP リクエスト] -->|VM 内での確認| Kong
-    Internet[インターネット] --> Cloudflare --> Tunnel[Cloudflare Tunnel] --> Kong
+    Internet[インターネット] -->|HTTPS :443 / DNS only| Kong
     Kong --> Service[通常の Kubernetes Service]
     Kong --> Kourier --> Knative[Knative Service]
 ```
@@ -61,41 +61,41 @@ port-forward を自動で起動し、次を確認する。
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
 待機中は別のアクセスを止める。すべて成功すると `3/3 成功` と表示する。
 
-## Cloudflare で公開
+## HTTPS で公開（Cloudflare DNS-01）
 
-Cloudflare Tunnel を使う。EC2 の受信ポートや既存 Caddy の設定は変更しない。
+Caddy と同じ方式で、cert-manager が証明書を自動発行・更新し、KIC が Kong に反映する。
+Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック IP へ向ける。
 
-1. `configs/environment/local.json` の `node_port` を `30081` に変更して再配備する。
+1. [トークン配置手順](docs/https.md#2-cloudflare-api-トークンを配置)で Cloudflare の API トークンを保存する。
+2. `local.json` に次の `tls` 設定を追加する。メールアドレスは自分のものに変更する。
 
-   ```bash
-   sudo ./bin/infra deploy --kubectl 'k0s kubectl'
+   ```json
+   "tls": {
+     "enabled": true,
+     "email": "you@example.com",
+     "cloudflare_zone": "ys-method-dev.com",
+     "host_https_port": 443
+   }
    ```
 
-2. [cloudflared の導入手順](docs/cloudflare.md#cloudflared-の導入)に沿って EC2 に導入し、
-   Cloudflare の **Networking → Tunnels** でトンネルを作る。
-   画面の Linux 向けサービス登録コマンドを EC2 で実行する。
-3. 次の公開ホスト名を登録し、両方の転送先を `http://<EC2 のプライベート IP>:30081` にする。
-   **HTTP Host Header は上書きしない**。
-
-   | 公開ホスト名 | 経路 |
-   | --- | --- |
-   | `standard.tmp.ys-method-dev.com` | 通常 Service |
-   | `sas47-apps-serverless.knative.tmp.ys-method-dev.com` | Kourier → Knative |
-
-4. 外部から確認する。
+3. `standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
+   `knative.tmp.ys-method-dev.com` の A レコードを登録し、EC2 の443/TCPを許可する。
+4. 構築・更新して確認する。
 
    ```bash
+   sudo ./bin/infra up
    curl --fail-with-body https://standard.tmp.ys-method-dev.com/
    curl --fail-with-body https://sas47-apps-serverless.knative.tmp.ys-method-dev.com/
    ```
 
-これらの多段サブドメインをカバーする Cloudflare のエッジ証明書が必要。
-通常の Universal SSL だけでは足りない場合がある。
-前提・トークンの扱い・証明書・撤去は [Cloudflare 公開手順](docs/cloudflare.md)を参照。
+DNS-01 のため証明書発行用に80番を開ける必要はない。
+既存 Caddy が443番を使用していれば自動停止せずエラーにする。
+[証明書・DNS・更新の詳細](docs/https.md) / [Tunnel を使う別構成](docs/cloudflare.md)
 
 ## 詳細
 
 - [構成・設定・既存クラスタへの追加](docs/setup-details.md)
+- [HTTPS・証明書の自動発行と更新](docs/https.md)
 - [KIC 構成と既存環境の移行](docs/kic.md)
 - [確認手順とオプション](docs/verification.md)
 - [webhook のトラブルシューティング](docs/webhook-diagnostics.md)

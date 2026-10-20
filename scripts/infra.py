@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tls
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
@@ -48,6 +49,7 @@ def load(path):
             raise ValueError("standard_host と standard_domain は同時に指定できません")
         c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
+    tls.normalize(c)
     expected = set(json.loads((ROOT / "configs/environment/example.json").read_text()))
     if set(c) != expected:
         raise ValueError(f"設定キーは {sorted(expected)} を指定してください")
@@ -106,10 +108,19 @@ def render(c, output):
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
+        host_https_port_line=(f"              hostPort: {c['tls']['host_https_port']}"
+                              if c["tls"]["enabled"] and c["tls"]["host_https_port"] else ""),
+        rollout_strategy=("  strategy:\n    type: Recreate"
+                          if c["tls"]["enabled"] and c["tls"]["host_https_port"] else ""),
+        standard_tls=(f"  tls:\n    - hosts: [{c['standard_domain']}]\n      secretName: standard-tls"
+                      if c["tls"]["enabled"] else ""),
+        knative_tls=(f"  tls:\n    - hosts: [{values['knative_host']}]\n      secretName: knative-wildcard-tls"
+                     if c["tls"]["enabled"] else ""),
     )
     for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
+    tls.render(c, output)
     knative = output / "knative-config"
     knative.mkdir(exist_ok=True)
     for name in ("network.yaml", "domain.yaml.tmpl", "kourier-svc.yaml"):
@@ -218,28 +229,28 @@ def install_host():
     return cluster
 
 
-def apply_knative_config(cluster, output):
+def apply_admission_config(cluster, path, description, manager, force=False):
     # A Ready Pod/endpoint alone does not demonstrate admission calls from the API server.
     # Probe the actual intended configuration without persisting it, then apply it.
     deadline = time.monotonic() + 180
     transient = (
         "context deadline exceeded", "i/o timeout", "connection refused",
-        'no endpoints available for service "webhook"',
+        'no endpoints available for service',
         "net/http: request canceled", "TLS handshake timeout",
+        "x509: certificate signed by unknown authority",
     )
-    arguments = ("apply", "--server-side", "--force-conflicts",
-                 "--field-manager=sas47-knative-config", "--request-timeout=20s",
-                 "-f", output / "knative-config")
+    arguments = ("apply", "--server-side", f"--field-manager={manager}", "--request-timeout=20s",
+                 "-f", path) + (("--force-conflicts",) if force else ())
     attempt = 0
     while True:
         attempt += 1
-        print(f"Knative webhook の実呼び出しを確認します（試行 {attempt}、待機上限180秒）。", flush=True)
+        print(f"{description} webhook の実呼び出しを確認します（試行 {attempt}、待機上限180秒）。", flush=True)
         try:
             cluster.call(*arguments, "--dry-run=server", capture_output=True, text=True,
                          timeout=min(25, max(1, deadline - time.monotonic())))
             cluster.call(*arguments, capture_output=True, text=True,
                          timeout=min(25, max(1, deadline - time.monotonic())))
-            print("Knative webhook の呼び出しと追加設定の適用が成功しました。", flush=True)
+            print(f"{description} webhook の呼び出しと追加設定の適用が成功しました。", flush=True)
             return
         except subprocess.CalledProcessError as exc:
             detail = (exc.stderr or "") + (exc.stdout or "")
@@ -250,8 +261,8 @@ def apply_knative_config(cluster, output):
             # The bounded readiness request itself timed out; never count this as ready.
             print("webhook 確認リクエストがタイムアウトしました。", file=sys.stderr, flush=True)
         if time.monotonic() >= deadline:
-            raise ValueError("Knative webhook の呼び出しが180秒以内に安定しませんでした。"
-                             "scripts/check-knative-webhook.sh で状態を確認してください")
+            raise ValueError(f"{description} webhook の呼び出しが180秒以内に安定しませんでした。"
+                             "対象 webhook のログを確認してください")
         print("webhook の通信準備を待っています。5秒後に実呼び出しを再確認します。", flush=True)
         time.sleep(min(5, max(0, deadline - time.monotonic())))
 
@@ -316,7 +327,7 @@ def bootstrap(cluster, output):
         apply_serving_core(cluster, tmp / "serving-core.yaml")
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
-    apply_knative_config(cluster, output)
+    apply_admission_config(cluster, output / "knative-config", "Knative", "sas47-knative-config", force=True)
     for namespace in ("knative-serving", "kourier-system"):
         cluster.call("rollout", "status", "deployment", "-n", namespace, "--timeout=300s")
 
@@ -342,6 +353,7 @@ def deploy(cluster, c, output):
         cluster.call("create", "-f", "-", input=json.dumps(manifest), text=True)
     render(c, output)
     install_kic_prerequisites(cluster, output)
+    tls.prepare(cluster, c, output, fetch, apply_admission_config)
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/standard", "-n", "sas47-apps", "--timeout=300s")
     cluster.call("wait", "ksvc/serverless", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=300s")

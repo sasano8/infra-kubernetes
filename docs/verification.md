@@ -66,7 +66,7 @@ mkdir -p .local/results
 date -u +%FT%TZ > .local/results/started-at.txt
 CONFIG=configs/environment/local.json
 STANDARD_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(c.get("standard_domain", c.get("standard_host")))' "$CONFIG")
-KNATIVE_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print("sas47-apps-serverless." + c.get("knative_domain", c.get("domain")))' "$CONFIG")
+KNATIVE_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print("hello-apps-serverless." + c.get("knative_domain", c.get("domain")))' "$CONFIG")
 BASE=http://127.0.0.1:8080
 
 curl --fail-with-body --silent --show-error --max-time 180 \
@@ -81,7 +81,7 @@ curl --fail-with-body --silent --show-error --max-time 180 \
 cat .local/results/knative.body
 # 期待: HTTP 200 / knative-service
 
-k -n sas47-apps get ksvc serverless -o yaml > .local/results/knative-service.yaml
+k -n hello-apps get ksvc serverless -o yaml > .local/results/knative-service.yaml
 k -n sas47-kong logs deployment/kong -c kong --tail=100 > .local/results/kong.log
 ```
 
@@ -100,7 +100,7 @@ window は30秒だが、autoscaler 全体の猶予期間もあるため数分待
 # 約10分を上限に実際の Pod 消滅を待つ。
 zero=false
 for ((i=0; i<120; i++)); do
-  count=$(k -n sas47-apps get pods \
+  count=$(k -n hello-apps get pods \
     -l serving.knative.dev/service=serverless -o name | wc -l)
   if [ "$count" -eq 0 ]; then
     zero=true
@@ -113,9 +113,9 @@ if [ "$zero" != true ]; then
   exit 1
 fi
 date -u +%FT%TZ > .local/results/zero-at.txt
-k -n sas47-apps get pods -l serving.knative.dev/service=serverless \
+k -n hello-apps get pods -l serving.knative.dev/service=serverless \
   -o json > .local/results/zero-pods.json
-k -n sas47-apps get deployments -l serving.knative.dev/service=serverless \
+k -n hello-apps get deployments -l serving.knative.dev/service=serverless \
   -o yaml > .local/results/zero-deployments.yaml
 
 # 同じ Kong 入口にリクエストして復帰させる。
@@ -124,7 +124,7 @@ curl --fail-with-body --silent --show-error --max-time 180 \
   -o .local/results/cold-start.body
 cat .local/results/cold-start.body
 # 期待: HTTP 200 / knative-service
-k -n sas47-apps get pods -l serving.knative.dev/service=serverless \
+k -n hello-apps get pods -l serving.knative.dev/service=serverless \
   -o json > .local/results/recovered-pods.json
 date -u +%FT%TZ > .local/results/recovered-at.txt
 ```
@@ -140,9 +140,9 @@ webhook のタイムアウト時は [確認スクリプト](webhook-diagnostics.
 ```bash
 k -n sas47-kong get pods,svc
 k -n sas47-kong logs deployment/kong -c kong --tail=100
-k -n sas47-apps get ksvc,revision,deploy,pod,svc
-k -n sas47-apps describe ksvc serverless
-k -n sas47-apps get events --sort-by=.lastTimestamp
+k -n hello-apps get ksvc,revision,deploy,pod,svc
+k -n hello-apps describe ksvc serverless
+k -n hello-apps get events --sort-by=.lastTimestamp
 k -n knative-serving get pods
 k -n kourier-system get pods,svc
 k -n knative-serving get cm config-network config-domain config-autoscaler -o yaml

@@ -62,7 +62,7 @@ def render(config, output):
         return
     issuer = {
         "apiVersion": "cert-manager.io/v1", "kind": "Issuer",
-        "metadata": {"name": "sas47-cloudflare", "namespace": "sas47-apps", "labels": OWNER},
+        "metadata": {"name": "sas47-cloudflare", "namespace": "hello-apps", "labels": OWNER},
         "spec": {"acme": {
             "server": options["acme_server"], "email": options["email"],
             "privateKeySecretRef": {"name": "sas47-acme-account"},
@@ -78,7 +78,7 @@ def render(config, output):
     ):
         resources.append({
             "apiVersion": "cert-manager.io/v1", "kind": "Certificate",
-            "metadata": {"name": name, "namespace": "sas47-apps", "labels": OWNER},
+            "metadata": {"name": name, "namespace": "hello-apps", "labels": OWNER},
             "spec": {"secretName": name, "dnsNames": domains,
                      "issuerRef": {"name": "sas47-cloudflare", "kind": "Issuer"}},
         })
@@ -125,7 +125,7 @@ def install_manager(cluster, fetch):
 def ensure_token(cluster, config):
     # Query metadata/key names only. Existing credential values are never dumped.
     template = '{{index .metadata.labels "infra.sasano8.dev/owner"}}:{{range $k,$v := .data}}{{$k}},{{end}}'
-    found = cluster.call("get", "secret/sas47-cloudflare-api-token", "-n", "sas47-apps",
+    found = cluster.call("get", "secret/sas47-cloudflare-api-token", "-n", "hello-apps",
                          "--ignore-not-found", "-o", "go-template=" + template,
                          capture_output=True, text=True)
     present = found.stdout.strip()
@@ -145,7 +145,7 @@ def ensure_token(cluster, config):
     if not token or any(char.isspace() for char in token):
         raise ValueError("Cloudflare トークンファイルが空、または空白を含んでいます")
     resource = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                "metadata": {"name": "sas47-cloudflare-api-token", "namespace": "sas47-apps", "labels": OWNER},
+                "metadata": {"name": "sas47-cloudflare-api-token", "namespace": "hello-apps", "labels": OWNER},
                 "data": {"api-token": base64.b64encode(token.encode()).decode()}}
     try:
         cluster.call("apply", "--server-side", "--field-manager=sas47-cloudflare-secret", "-f", "-",
@@ -181,8 +181,8 @@ def prepare(cluster, config, output, fetch, apply_config):
     ensure_token(cluster, config)
     install_manager(cluster, fetch)
     apply_config(cluster, output / "tls.json", "cert-manager", "sas47-tls", force=False)
-    cluster.call("wait", "issuer/sas47-cloudflare", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=180s")
+    cluster.call("wait", "issuer/sas47-cloudflare", "-n", "hello-apps", "--for=condition=Ready", "--timeout=180s")
     print("DNS-01 による証明書発行を待っています（各証明書は最大600秒）。", flush=True)
     for name in ("standard-tls", "knative-wildcard-tls"):
-        cluster.call("wait", f"certificate/{name}", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=600s")
+        cluster.call("wait", f"certificate/{name}", "-n", "hello-apps", "--for=condition=Ready", "--timeout=600s")
     print("証明書の準備ができました。KIC が Secret の更新を Kong に反映します。", flush=True)

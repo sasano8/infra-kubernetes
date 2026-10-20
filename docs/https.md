@@ -57,7 +57,7 @@ chmod 600 .local/secrets/cloudflare-api-token
 ```
 
 `.local/` は Git 管理外。スクリプトはこのファイルから
-`sas47-apps/sas47-cloudflare-api-token` Secret を作成する。
+`hello-apps/hello-cloudflare-api-token` Secret を作成する。
 Secret 値はログや生成マニフェストへ出力せず、API エラーに値が含まれる場合も表示しない。
 再実行時はファイルがあれば更新し、なければ所有ラベル付きの登録済み Secret を使用する。
 更新を継続できるようトークンを有効に保つ。失効・ローテーション時はファイルを置き換えて `up` を実行する。
@@ -106,8 +106,8 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 
 | Certificate / Secret | 対象 |
 | --- | --- |
-| `sas47-apps/standard-tls` | `standard_domain` と `*.standard_domain` |
-| `sas47-apps/knative-wildcard-tls` | `knative_domain` と `*.knative_domain` |
+| `hello-apps/standard-tls` | `standard_domain` と `*.standard_domain` |
+| `hello-apps/knative-wildcard-tls` | `knative_domain` と `*.knative_domain` |
 
 証明書の Ready を各最大600秒待ち、その後に TLS Secret を参照する Ingress と Kong を配備する。
 追加の Knative Service も同じ1階層の命名ならワイルドカード証明書を共用できる。
@@ -120,16 +120,16 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 `ingressClassName: sas47-kong` の Ingress を追加する。
 DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するため再起動は不要。
 未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
-現在の KIC は `sas47-apps` / `sas47-kong` Namespace を監視する。
+現在の KIC は `hello-apps` / `sas47-kong` Namespace を監視する。
 
-例（`sas47-apps` の既存 `standard` Service を追加ホストで公開）:
+例（`hello-apps` の既存 `standard` Service を追加ホストで公開）:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: standard-api
-  namespace: sas47-apps
+  namespace: hello-apps
   annotations:
     konghq.com/preserve-host: "true"
 spec:
@@ -166,7 +166,7 @@ hostPort 使用時は Kong を Recreate で更新するため、更新中に一�
 
 ```bash
 curl --fail-with-body --max-time 180 https://standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://sas47-apps-serverless.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-apps-serverless.knative.tmp.ys-method-dev.com/
 ```
 
 期待する本文は `standard-service` / `knative-service`。
@@ -179,8 +179,8 @@ sudo python3 scripts/check-routes.py
 証明書発行状況:
 
 ```bash
-sudo k0s kubectl -n sas47-apps get issuer,certificate,certificaterequest,orders,challenges
-sudo k0s kubectl -n sas47-apps describe certificate knative-wildcard-tls
+sudo k0s kubectl -n hello-apps get issuer,certificate,certificaterequest,orders,challenges
+sudo k0s kubectl -n hello-apps describe certificate knative-wildcard-tls
 sudo k0s kubectl -n cert-manager logs deployment/cert-manager --tail=100
 sudo k0s kubectl -n sas47-kong logs deployment/kong -c ingress-controller --tail=100
 ```
@@ -198,7 +198,7 @@ staging 証明書はブラウザに信頼されない。公開時は production 
 cert-manager は期限前に自動更新し、KIC は更新された証明書を反映する。
 DNS API トークン、ACME アカウント Secret、DNS・HTTPS の送信通信を維持する。
 TLS を無効化しただけでは証明書・トークンを削除しない。
-検証環境の `remove` は `sas47-apps` の Issuer・Certificate・Secret も削除する。
+検証環境の `remove` は `hello-apps` の Issuer・Certificate・Secret も削除する。
 TXT レコードの後片付けが終わるまで cert-manager を停止しない。
 cert-manager 本体と CRD は他用途に利用され得るため自動削除しない。
 

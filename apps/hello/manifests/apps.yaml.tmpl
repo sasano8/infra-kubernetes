@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: standard
-  namespace: sas47-apps
+  namespace: hello-apps
 spec:
   replicas: 1
   selector:
@@ -33,7 +33,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: standard
-  namespace: sas47-apps
+  namespace: hello-apps
 spec:
   selector: {app: standard}
   ports:
@@ -43,7 +43,7 @@ apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: serverless
-  namespace: sas47-apps
+  namespace: hello-apps
   annotations:
     networking.knative.dev/ingress-class: kourier.ingress.networking.knative.dev
 spec:

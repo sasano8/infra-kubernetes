@@ -47,7 +47,7 @@ $host_https_port_line
           env:
             - {name: CONTROLLER_KONG_ADMIN_URL, value: "http://127.0.0.1:8001"}
             - {name: CONTROLLER_INGRESS_CLASS, value: sas47-kong}
-            - {name: CONTROLLER_WATCH_NAMESPACE, value: "sas47-apps,sas47-kong"}
+            - {name: CONTROLLER_WATCH_NAMESPACE, value: "hello-apps,sas47-kong"}
             - {name: CONTROLLER_PUBLISH_SERVICE, value: sas47-kong/kong-proxy}
             - {name: CONTROLLER_ELECTION_ID, value: sas47-kong}
             - name: POD_NAME

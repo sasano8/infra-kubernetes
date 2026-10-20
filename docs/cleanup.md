@@ -12,7 +12,7 @@ kubectl config current-context
 ```
 
 対象は所有ラベル `infra.sasano8.dev/owner=sas47` が付いた
-`sas47-apps` / `sas47-kong` の2 Namespace と、その配下の全リソース。
+`hello-apps` / `sas47-kong` の2 Namespace と、その配下の全リソース。
 両方のラベルを確認してから削除する。所有ラベルがなければ停止する。
 この Namespace に検証以外のワークロードを置かないこと。
 

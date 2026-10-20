@@ -11,7 +11,7 @@
 | `configs/kube/k0s.yaml` | 同じ場所にホスト用設定。kube-router の metricsPort=8081 を維持 |
 | `plugins/knative/config/` | 同じ場所に network / domain / Kourier Service 設定 |
 | `plugins/kong/` | 同じ場所に DB-less Kong の実装を追加 |
-| `apps/tutorial/` | `apps/sas47/` に用途を限定した2つのサンプル |
+| `apps/tutorial/` | `apps/hello/` に用途を限定した2つのサンプル |
 | `installer/local_k0s/` | `scripts/infra.py` のホスト構築処理に集約 |
 | `.env` / `installer/kvtool.sh` | JSON 設定に置換。設定を shell として実行しない |
 | `scripts/plugin-install.sh` | 汎用の全プラグイン導入ではなく、必要な構成だけ順序を固定して配備 |

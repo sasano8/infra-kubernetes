@@ -12,15 +12,15 @@ API トークンは KIC コンテナだけにマウントする。
 
 | Ingress | ホスト名 | バックエンド |
 | --- | --- | --- |
-| `sas47-apps/standard` | `standard_domain` | `standard` Service |
-| `sas47-apps/serverless` | `sas47-apps-serverless.<knative_domain>` | `kourier-proxy` Service |
+| `hello-apps/standard` | `standard_domain` | `standard` Service |
+| `hello-apps/serverless` | `hello-apps-serverless.<knative_domain>` | `kourier-proxy` Service |
 
 `kourier-proxy` は `kourier_service` を指す ExternalName Service。
 Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の Service は変更しない。
 両 Ingress で Host を保持し、Knative の ingress は Kourier のままにする。
 
 専用 IngressClass は `sas47-kong`。デフォルトの IngressClass には設定しない。
-KIC の監視対象 Namespace は `sas47-apps` と `sas47-kong` に限定する。
+KIC の監視対象 Namespace は `hello-apps` と `sas47-kong` に限定する。
 RBAC は公式 KIC v3.4.3 の権限定義を基にしており、ClusterRole を含む。
 既存の Caddy・別 IngressClass のルートは採用しない。
 Gateway API のコントローラは無効にし、Gateway API CRD は追加しない。
@@ -51,6 +51,21 @@ IngressClass・ClusterRole・ClusterRoleBinding の同名既存リソースは�
 
 ## ホスト名の区切り変更
 
+アプリ用 Namespace は課題番号を含む `sas47-apps` から `hello-apps` へ変更した。
+ファイル配置も `apps/hello/` に揃えた。
+これにより Knative のホスト名は `hello-apps-serverless.<knative_domain>` となる。
+`git pull origin main` 後に `sudo ./bin/infra up` を実行し、
+`sudo python3 scripts/check-routes.py` で新しい Namespace の経路を確認する。
+KIC の監視対象・Ingress・証明書の配置・確認スクリプトも新しい Namespace を使用する。
+Cloudflare Tunnel を使っている場合は公開ホスト名も変更する。
+
+旧 Namespace は自動削除せず、旧リソースを残す。
+新しい経路が動作することを確認し、旧 Namespace に残すべきリソースがないと確認できたら
+管理者が `sas47-apps` を削除する。新しい `remove` は旧 Namespace を対象にしない。
+TLS 有効時は新 Namespace に Issuer・証明書・トークン Secret を作り直す。
+旧 Secret を自動コピーしないため、トークンファイルを削除済みなら再配置が必要。
+新 Namespace で証明書を再発行する場合は ACME の発行制限に注意する。
+
 Knative の Namespace とサービス名の区切りを `--` から `-` に変更した。
 新規構築、Kong Ingress、確認スクリプトは同じ新形式を使用する。
 本リポジトリで作成した専用 VM は `sudo ./bin/infra up` で設定を更新する。
@@ -67,7 +82,7 @@ Cloudflare の公開ホスト名も新しい名前へ変更する。
 Kong は TLS listener 8443 と Service 443 を用意する。
 `tls.enabled` を有効にすると cert-manager を導入し、Cloudflare DNS-01 で
 通常経路用と Knative ワイルドカード用の証明書を自動発行・更新する。
-Issuer・Certificate・TLS Secret は `sas47-apps` に置き、KIC が Kong に反映する。
+Issuer・Certificate・TLS Secret は `hello-apps` に置き、KIC が Kong に反映する。
 ホスト443番への公開も設定できる。詳細は [HTTPS](https.md) を参照。
 
 ## 状態確認
@@ -76,7 +91,7 @@ Issuer・Certificate・TLS Secret は `sas47-apps` に置き、KIC が Kong に�
 sudo k0s kubectl -n sas47-kong get pods
 sudo k0s kubectl -n sas47-kong logs deployment/kong -c ingress-controller --tail=100
 sudo k0s kubectl -n sas47-kong logs deployment/kong -c kong --tail=100
-sudo k0s kubectl -n sas47-apps get ingress
+sudo k0s kubectl -n hello-apps get ingress
 sudo k0s kubectl get ingressclass sas47-kong
 ```
 

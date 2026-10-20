@@ -87,7 +87,7 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
    ```bash
    sudo ./bin/infra up
    curl --fail-with-body https://standard.tmp.ys-method-dev.com/
-   curl --fail-with-body https://sas47-apps-serverless.knative.tmp.ys-method-dev.com/
+   curl --fail-with-body https://hello-apps-serverless.knative.tmp.ys-method-dev.com/
    ```
 
 DNS-01 のため証明書発行用に80番を開ける必要はない。

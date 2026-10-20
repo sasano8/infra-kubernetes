@@ -118,6 +118,9 @@ def main():
                 print(f"FAIL: {name}: {exc}", flush=True)
         if knative_ok:
             try:
+                print("\n[scale-zero] テスト内容: Knative の Pod が0件になった後、同じ Kong 入口へ"
+                      "再アクセスし、HTTP 200・本文 knative-service・Ready Pod の再生成を確認します。",
+                      flush=True)
                 print(f"\n[scale-zero] Pod がゼロ件になるまで待機します（最大 {args.scale_zero_timeout} 秒）。"
                       "Knative への別のアクセスも停止してください。", flush=True)
                 wait_for_pods(zero=True, timeout=args.scale_zero_timeout)

@@ -121,7 +121,46 @@ VM の `127.0.0.1:8080` を転送する。
 NodePort を選ぶ場合は VM のファイアウォールで検証元だけを許可する。
 公開 DNS や本番 TLS は不要で、Host ヘッダーで振り分ける。
 
-**動作確認は未実施**。依頼に従いテスト・VM インストールは実行していない。
+### 1コマンドで動作確認
+
+VM 上のリポジトリのルートで実行する。Python 標準ライブラリのみを使用する。
+
+```bash
+sudo python3 scripts/check-routes.py
+```
+
+設定ファイルを読み、自動で Kong の port-forward を起動して、次の3項目を確認する。
+
+1. **通常 Service の経路**: Kong → Kubernetes Service → Deployment にアクセスし、
+   HTTP 200 と本文 `standard-service` を確認する。
+2. **Knative の経路**: Kong → Kourier → Knative Service にアクセスし、
+   HTTP 200 と本文 `knative-service` を確認する。
+3. **スケールゼロからの復帰**: Knative へのアクセスを止め、検証用 Knative Service の
+   Pod が0件になるまで待つ。その後、同じ Kong 入口に再アクセスし、
+   HTTP 200・本文 `knative-service`・Ready Pod の再生成を確認する。
+
+3では次のように表示する。5秒ごとに Pod 数を取得し、最大600秒待機する。
+Terminating / Error の Pod も削除されて0件になるまで待つ。
+
+```text
+[scale-zero] Pod がゼロ件になるまで待機します（最大 600 秒）。Knative への別のアクセスも停止してください。
+```
+
+待機中は別ターミナルや監視からも検証用 Knative Service にアクセスしないこと。
+0件になる前には復帰リクエストを送らず、期限内に0件にならなければ失敗とする。
+すべて成功すると `3/3 成功` と表示し、終了コード0を返す。
+途中の失敗やスキップがあれば終了コード1を返す。
+終了時には自身が起動した port-forward を停止する。
+
+待機時間を延ばす場合:
+
+```bash
+sudo python3 scripts/check-routes.py --scale-zero-timeout 900
+```
+
+ユーザーの AWS VM で、2経路の HTTP 200・期待する本文を確認済み。
+手動で Pod が0件になった後の再アクセスも HTTP 200 が報告されている。
+スケールゼロ復帰を追加した版のスクリプトは、VM 上での実行結果待ち。
 [HTTP・スケールゼロ復帰・結果記録](docs/verification.md)と
 [撤去手順](docs/cleanup.md)を参照。
 

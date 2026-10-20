@@ -38,13 +38,17 @@ def load(path):
         if "knative_domain" in c:
             raise ValueError("domain と knative_domain は同時に指定できません")
         c["knative_domain"] = c.pop("domain")
+    if "standard_host" in c:
+        if "standard_domain" in c:
+            raise ValueError("standard_host と standard_domain は同時に指定できません")
+        c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
     expected = set(json.loads((ROOT / "configs/environment/example.json").read_text()))
     if set(c) != expected:
         raise ValueError(f"設定キーは {sorted(expected)} を指定してください")
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
-    for key in ("base_domain", "knative_domain", "standard_host", "kourier_service"):
+    for key in ("base_domain", "knative_domain", "standard_domain", "kourier_service"):
         value = c[key]
         if key == "base_domain" and value is None:
             continue
@@ -54,7 +58,7 @@ def load(path):
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
     host = "sas47-apps--serverless." + c["knative_domain"]
-    if len(host) > 253 or host == c["standard_host"]:
+    if len(host) > 253 or host == c["standard_domain"]:
         raise ValueError("Knative と通常 Service のホスト名を区別してください（最大253文字）")
     port = c["node_port"]
     if port is not None and (type(port) is not int or not 30000 <= port <= 32767):
@@ -72,7 +76,7 @@ def configure(path):
         "mode": "新規 VM=new-host / 既存クラスタ=existing",
         "base_domain": "ベースドメイン（参照情報。各経路は個別指定）",
         "knative_domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
-        "standard_host": "通常 Service の Host",
+        "standard_domain": "通常経路のドメイン（この名前で直接アクセス）",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
     }

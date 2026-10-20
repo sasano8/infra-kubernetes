@@ -32,8 +32,13 @@ def main():
     knative_domain = config.get("knative_domain", config.get("domain"))
     if not isinstance(knative_domain, str) or not knative_domain:
         parser.error("knative_domain を指定してください（旧 domain も使用可能）")
+    if "standard_host" in config and "standard_domain" in config:
+        parser.error("standard_host と standard_domain は同時に指定できません")
+    standard_domain = config.get("standard_domain", config.get("standard_host"))
+    if not isinstance(standard_domain, str) or not standard_domain:
+        parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
     cases = [
-        ("standard", config["standard_host"], "standard-service"),
+        ("standard", standard_domain, "standard-service"),
         ("knative", "sas47-apps--serverless." + knative_domain, "knative-service"),
     ]
     command = shlex.split(args.kubectl)

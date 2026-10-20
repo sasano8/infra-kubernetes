@@ -2,7 +2,7 @@
   "mode": "new-host",
   "base_domain": "example.test",
   "knative_domain": "knative.example.test",
-  "standard_host": "standard.example.test",
+  "standard_domain": "standard.example.test",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null
 }

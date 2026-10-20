@@ -30,7 +30,7 @@ cat > configs/environment/local.json <<'EOF'
   "mode": "new-host",
   "base_domain": "tmp.ys-method-dev.com",
   "knative_domain": "knative.tmp.ys-method-dev.com",
-  "standard_host": "standard.tmp.ys-method-dev.com",
+  "standard_domain": "standard.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null
 }
@@ -40,7 +40,7 @@ sudo ./bin/infra up
 ```
 
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
-`standard_host` は通常経路用に個別指定する。
+`standard_domain` は通常経路用に個別指定する。
 
 ## 動作確認
 

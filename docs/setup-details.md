@@ -90,7 +90,7 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | `mode` | `new-host` / `existing` |
 | `base_domain` | 任意の共通ベースドメイン。省略 / null 可。参照情報であり DNS やルーティングは設定しない |
 | `knative_domain` | Knative ドメイン。新規構築時は config-domain に設定 |
-| `standard_host` | 通常 Service の Host |
+| `standard_domain` | 通常 Service の Host |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
 
@@ -204,3 +204,7 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 各経路は個別指定し、`base_domain` からの自動生成やサブドメインの強制はしない。
 旧 `domain` は `knative_domain` の別名として使用可能。同時指定はエラー。
 既存設定に `base_domain` を追加する必要はない。
+
+旧 `standard_host` は `standard_domain` の別名として使用可能。同時指定はエラー。
+`standard_domain` は指定名で直接ルーティングし、`knative_domain` は
+`namespace--name.knative_domain` の形式で使用する。

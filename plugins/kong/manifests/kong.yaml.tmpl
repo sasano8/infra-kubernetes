@@ -12,7 +12,7 @@ data:
         url: http://standard.sas47-apps.svc.cluster.local:80
         routes:
           - name: standard
-            hosts: ["$standard_host"]
+            hosts: ["$standard_domain"]
             protocols: [http]
             preserve_host: true
       - name: serverless

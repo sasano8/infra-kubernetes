@@ -18,8 +18,8 @@ Cloudflare の DNS で次の A レコードを **DNS only** として登録し�
 
 | 名前 | 用途 |
 | --- | --- |
-| `standard.tmp.ys-method-dev.com` | 通常 Service |
-| `*.standard.tmp.ys-method-dev.com` | 通常経路に追加するサブドメイン（公開する場合） |
+| `standard.tmp.ys-method-dev.com` | 通常経路ドメインの証明書対象 |
+| `*.standard.tmp.ys-method-dev.com` | `hello-test-ssvc` など通常経路のサブドメイン |
 | `knative.tmp.ys-method-dev.com` | Knative 用ドメインの証明書対象 |
 | `*.knative.tmp.ys-method-dev.com` | 各 Knative Service |
 
@@ -122,7 +122,7 @@ DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するた�
 未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
 現在の KIC は `test` / `sas47-kong` Namespace を監視する。
 
-例（`test` の既存 `standard` Service を追加ホストで公開）:
+例（`test` の既存 `hello-ssvc` Service を追加ホストで公開）:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -145,7 +145,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: standard
+                name: hello-ssvc
                 port: {number: 80}
 ```
 
@@ -165,8 +165,8 @@ hostPort 使用時は Kong を Recreate で更新するため、更新中に一�
 外部端末から、証明書を検証したままアクセスする。`-k` は使用しない。
 
 ```bash
-curl --fail-with-body --max-time 180 https://standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://test-hello.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
 ```
 
 期待する本文は `standard-service` / `knative-service`。

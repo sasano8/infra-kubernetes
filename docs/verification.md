@@ -65,8 +65,8 @@ k() { sudo k0s kubectl "$@"; }
 mkdir -p .local/results
 date -u +%FT%TZ > .local/results/started-at.txt
 CONFIG=configs/environment/local.json
-STANDARD_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(c.get("standard_domain", c.get("standard_host")))' "$CONFIG")
-KNATIVE_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print("test-hello." + c.get("knative_domain", c.get("domain")))' "$CONFIG")
+STANDARD_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print("hello-test-ssvc." + c.get("standard_domain", c.get("standard_host")))' "$CONFIG")
+KNATIVE_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print("hello-test-ksvc." + c.get("knative_domain", c.get("domain")))' "$CONFIG")
 BASE=http://127.0.0.1:8080
 
 curl --fail-with-body --silent --show-error --max-time 180 \

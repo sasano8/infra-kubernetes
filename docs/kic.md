@@ -12,8 +12,8 @@ API トークンは KIC コンテナだけにマウントする。
 
 | Ingress | ホスト名 | バックエンド |
 | --- | --- | --- |
-| `test/standard` | `standard_domain` | `standard` Service |
-| `test/hello` | `test-hello.<knative_domain>` | `kourier-proxy` Service |
+| `test/standard` | `hello-test-ssvc.<standard_domain>` | `hello-ssvc` Service |
+| `test/hello` | `hello-test-ksvc.<knative_domain>` | `kourier-proxy` Service |
 
 `kourier-proxy` は `kourier_service` を指す ExternalName Service。
 Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の Service は変更しない。
@@ -51,13 +51,21 @@ IngressClass・ClusterRole・ClusterRoleBinding の同名既存リソースは�
 
 ## ホスト名の区切り変更
 
+公開名は `hello-test-ksvc.<knative_domain>` / `hello-test-ssvc.<standard_domain>`。
+`ksvc` は Knative Service、`ssvc` は standard service の略。
+Knative の domain-template は `{{.Name}}-{{.Namespace}}-ksvc.{{.Domain}}` とする。
+通常経路は Kong Ingress に同じ順序のホスト名を明示指定する。
+通常 Service 名は `hello-ssvc` とし、Knative が作る内部 Service `hello` との衝突を避ける。
+Ingress 自体の名前は `standard` / `hello` を維持し、旧ホストのルートを上書きする。
+旧 `standard` Deployment / Service は自動削除しない。不要なら新経路の確認後に撤去する。
+
 アプリ用 Namespace は `test`、Knative Service 名は `hello`。
-ホスト名は `test-hello.<knative_domain>` となる。
+ホスト名は `hello-test-ksvc.<knative_domain>` となる。
 ファイル配置はアプリ名を表す `apps/hello/`。
 `git pull origin main` 後に `sudo ./bin/infra up` を実行し、
 `sudo python3 scripts/check-routes.py` で新しい Namespace の経路を確認する。
 KIC の監視対象・Ingress・証明書の配置・確認スクリプトも新しい名前を使用する。
-通常経路の Kubernetes Service 名は `standard` のまま、同じ `test` Namespace に置く。
+通常経路の Kubernetes Service / Deployment 名は `hello-ssvc` とし、同じ `test` Namespace に置く。
 Cloudflare Tunnel を使っている場合は公開ホスト名も変更する。
 
 旧 Namespace（`sas47-apps` / `hello-apps`）は自動削除せず、旧リソースを残す。

@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: standard
+  name: hello-ssvc
   namespace: test
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: standard}
+    matchLabels: {app: hello-ssvc}
   template:
     metadata:
-      labels: {app: standard}
+      labels: {app: hello-ssvc}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -32,10 +32,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: standard
+  name: hello-ssvc
   namespace: test
 spec:
-  selector: {app: standard}
+  selector: {app: hello-ssvc}
   ports:
     - {name: http, port: 80, targetPort: http}
 ---

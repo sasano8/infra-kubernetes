@@ -24,8 +24,8 @@
 - ホスト上で k0s の単一ノード controller / worker を起動する。
 - Kourier を Knative の ingress として維持する。
 - 元の domain-template は `{{.Namespace}}--{{.Name}}.{{.Domain}}`。
-  現在は Cloudflare での登録に合わせ、ハイフン1つの
-  `{{.Namespace}}-{{.Name}}.{{.Domain}}` に変更している。
+  現在はアプリ名・Namespace・種類を表す
+  `{{.Name}}-{{.Namespace}}-ksvc.{{.Domain}}` に変更している。
 - upstream の Knative 配布 YAML と追加設定を分離する。
 - 大きな CRD は server-side apply で適用する。
 - webhook の Deployment 起動に加え、追加設定の server-side dry-run で

@@ -23,7 +23,7 @@ KNATIVE = "knative-v1.20.0"
 KONG_CHART = "2.47.0"
 # Published digest from Kong/charts gh-pages/index.yaml.
 KONG_CHART_SHA256 = "41679730cf7016c2d43e28176c2b5850a166d90f59e0003de7096318985a4696"
-TEMPLATE = "{{.Namespace}}-{{.Name}}.{{.Domain}}"
+TEMPLATE = "{{.Name}}-{{.Namespace}}-ksvc.{{.Domain}}"
 OWNER = {"infra.sasano8.dev/owner": "sas47"}
 NAMESPACES = ("test", "sas47-kong")
 MANIFESTS = {
@@ -64,8 +64,9 @@ def load(path):
             for x in value.split(".")
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    host = "test-hello." + c["knative_domain"]
-    if len(host) > 253 or host == c["standard_domain"]:
+    host = "hello-test-ksvc." + c["knative_domain"]
+    standard_host = "hello-test-ssvc." + c["standard_domain"]
+    if max(len(host), len(standard_host)) > 253 or host == standard_host:
         raise ValueError("Knative と通常 Service のホスト名を区別してください（最大253文字）")
     port = c["node_port"]
     if port is not None and (type(port) is not int or not 30000 <= port <= 32767):
@@ -83,7 +84,7 @@ def configure(path):
         "mode": "新規 VM=new-host / 既存クラスタ=existing",
         "base_domain": "ベースドメイン（参照情報。各経路は個別指定）",
         "knative_domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
-        "standard_domain": "通常経路のドメイン（この名前で直接アクセス）",
+        "standard_domain": "通常経路のベースドメイン（hello-test-ssvc を付ける）",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
     }
@@ -104,7 +105,8 @@ def configure(path):
 
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
-    values = dict(c, knative_host="test-hello." + c["knative_domain"])
+    values = dict(c, knative_host="hello-test-ksvc." + c["knative_domain"],
+                  standard_host="hello-test-ssvc." + c["standard_domain"])
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
@@ -112,7 +114,7 @@ def render(c, output):
                               if c["tls"]["enabled"] and c["tls"]["host_https_port"] else ""),
         rollout_strategy=("  strategy:\n    type: Recreate"
                           if c["tls"]["enabled"] and c["tls"]["host_https_port"] else ""),
-        standard_tls=(f"  tls:\n    - hosts: [{c['standard_domain']}]\n      secretName: standard-tls"
+        standard_tls=(f"  tls:\n    - hosts: [{values['standard_host']}]\n      secretName: standard-tls"
                       if c["tls"]["enabled"] else ""),
         knative_tls=(f"  tls:\n    - hosts: [{values['knative_host']}]\n      secretName: knative-wildcard-tls"
                      if c["tls"]["enabled"] else ""),
@@ -355,9 +357,9 @@ def deploy(cluster, c, output):
     install_kic_prerequisites(cluster, output)
     tls.prepare(cluster, c, output, fetch, apply_admission_config)
     cluster.call("apply", "-f", output / "apps.yaml")
-    cluster.call("rollout", "status", "deployment/standard", "-n", "test", "--timeout=300s")
+    cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
     cluster.call("wait", "ksvc/hello", "-n", "test", "--for=condition=Ready", "--timeout=300s")
-    expected = "http://test-hello." + c["knative_domain"]
+    expected = "http://hello-test-ksvc." + c["knative_domain"]
     deadline = time.monotonic() + 180
     while True:
         service = cluster.get("ksvc/hello", "-n", "test", "--request-timeout=10s")

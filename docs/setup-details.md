@@ -11,12 +11,12 @@ Docker は不要で、コンテナ実行には k0s 内蔵 containerd を使う�
 HTTP + Host → Kong (DB-less)
                 ├─ standard.example.test
                 │    └─ Service → Deployment → "standard-service"
-                └─ test-hello.example.test
+                └─ hello-test-ksvc.example.test
                      └─ Kourier → Knative → "knative-service"
 ```
 
 Kong の `preserve_host: true` と Knative の
-`{{.Namespace}}-{{.Name}}.{{.Domain}}` を使う。
+`{{.Name}}-{{.Namespace}}-ksvc.{{.Domain}}` を使う。
 Revision / Activator と連携する Kourier は維持する。
 Kong は DB-less のまま KIC で Ingress と TLS Secret を反映する。
 Gateway API CRD・Helm CLI・DB は追加しない。構成と移行は [KIC](kic.md) を参照。
@@ -92,7 +92,7 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | `mode` | `new-host` / `existing` |
 | `base_domain` | 任意の共通ベースドメイン。省略 / null 可。参照情報であり DNS やルーティングは設定しない |
 | `knative_domain` | Knative ドメイン。新規構築時は config-domain に設定 |
-| `standard_domain` | 通常 Service の Host |
+| `standard_domain` | 通常経路のベースドメイン。公開名は `hello-test-ssvc.<standard_domain>` |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
 | `tls` | 省略時は無効。Cloudflare DNS-01・証明書更新・Kong の HTTPS 公開設定。詳細は [HTTPS](https.md) |
@@ -209,5 +209,5 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 既存設定に `base_domain` を追加する必要はない。
 
 旧 `standard_host` は `standard_domain` の別名として使用可能。同時指定はエラー。
-`standard_domain` は指定名で直接ルーティングし、`knative_domain` は
-`namespace-name.knative_domain` の形式で使用する。
+公開名は通常経路が `hello-test-ssvc.<standard_domain>`、Knative が
+`hello-test-ksvc.<knative_domain>`。通常リソース名は `hello-ssvc`、Knative は `test/hello`。

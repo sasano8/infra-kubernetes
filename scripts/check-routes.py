@@ -38,8 +38,8 @@ def main():
     if not isinstance(standard_domain, str) or not standard_domain:
         parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
     cases = [
-        ("standard", standard_domain, "standard-service"),
-        ("knative", "test-hello." + knative_domain, "knative-service"),
+        ("standard", "hello-test-ssvc." + standard_domain, "standard-service"),
+        ("knative", "hello-test-ksvc." + knative_domain, "knative-service"),
     ]
     command = shlex.split(args.kubectl)
     if not command:

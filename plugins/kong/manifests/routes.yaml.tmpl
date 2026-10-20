@@ -10,14 +10,14 @@ spec:
   ingressClassName: sas47-kong
 $standard_tls
   rules:
-    - host: "$standard_domain"
+    - host: "$standard_host"
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: standard
+                name: hello-ssvc
                 port: {number: 80}
 ---
 apiVersion: v1

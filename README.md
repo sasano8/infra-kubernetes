@@ -44,7 +44,14 @@ sudo ./bin/infra up
 ```
 
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
-`standard_domain` は通常経路用に個別指定する。
+`standard_domain` は通常経路のベースドメインとして個別指定する。
+
+Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の順に揃える。
+
+| 種類 | リソース名 | 公開ホスト名 |
+| --- | --- | --- |
+| Knative Service（ksvc） | `hello` | `hello-test-ksvc.<knative_domain>` |
+| 通常 Service / Deployment（ssvc） | `hello-ssvc` | `hello-test-ssvc.<standard_domain>` |
 
 ## 動作確認
 
@@ -80,14 +87,14 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
    }
    ```
 
-3. `standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
+3. `*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
    `knative.tmp.ys-method-dev.com` の A レコードを登録し、EC2 の443/TCPを許可する。
 4. 構築・更新して確認する。
 
    ```bash
    sudo ./bin/infra up
-   curl --fail-with-body https://standard.tmp.ys-method-dev.com/
-   curl --fail-with-body https://test-hello.knative.tmp.ys-method-dev.com/
+   curl --fail-with-body https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
+   curl --fail-with-body https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
    ```
 
 DNS-01 のため証明書発行用に80番を開ける必要はない。

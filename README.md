@@ -1,6 +1,7 @@
 # infra-kubernetes
 
 EC2 上に k0s・Kong・Knative を構築し、通常 Service と Knative の2経路を確認する。
+Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
 ```mermaid
 flowchart LR
@@ -9,6 +10,8 @@ flowchart LR
     Kong --> Service[通常の Kubernetes Service]
     Kong --> Kourier --> Knative[Knative Service]
 ```
+
+KIC は経路設定を管理するため、リクエストの経路図には含めていない。
 
 ## インストール
 
@@ -93,6 +96,7 @@ Cloudflare Tunnel を使う。EC2 の受信ポートや既存 Caddy の設定は
 ## 詳細
 
 - [構成・設定・既存クラスタへの追加](docs/setup-details.md)
+- [KIC 構成と既存環境の移行](docs/kic.md)
 - [確認手順とオプション](docs/verification.md)
 - [webhook のトラブルシューティング](docs/webhook-diagnostics.md)
 - [撤去](docs/cleanup.md)

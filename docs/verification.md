@@ -82,7 +82,7 @@ cat .local/results/knative.body
 # 期待: HTTP 200 / knative-service
 
 k -n sas47-apps get ksvc serverless -o yaml > .local/results/knative-service.yaml
-k -n sas47-kong logs deployment/kong --tail=100 > .local/results/kong.log
+k -n sas47-kong logs deployment/kong -c kong --tail=100 > .local/results/kong.log
 ```
 
 HTTP が両方200で、本文が別々の期待値であることを確認する。
@@ -139,7 +139,7 @@ webhook のタイムアウト時は [確認スクリプト](webhook-diagnostics.
 
 ```bash
 k -n sas47-kong get pods,svc
-k -n sas47-kong logs deployment/kong --tail=100
+k -n sas47-kong logs deployment/kong -c kong --tail=100
 k -n sas47-apps get ksvc,revision,deploy,pod,svc
 k -n sas47-apps describe ksvc serverless
 k -n sas47-apps get events --sort-by=.lastTimestamp

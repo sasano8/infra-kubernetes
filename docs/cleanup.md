@@ -16,7 +16,8 @@ kubectl config current-context
 両方のラベルを確認してから削除する。所有ラベルがなければ停止する。
 この Namespace に検証以外のワークロードを置かないこと。
 
-Caddy、Knative、Kourier、共通設定、CRD、k0s は削除しない。
+専用 IngressClass・ClusterRole・ClusterRoleBinding（各 `sas47-kong`）も所有ラベルを確認して削除する。
+Caddy、Knative、Kourier、共通設定、共有され得る Kong CRD、k0s は削除しない。
 新規ホストで作った Knative / Kourier も残る。
 再配備には同じ設定で `deploy` または `up` を実行する。
 生成設定と `.local/` の証跡は調査用に残す。

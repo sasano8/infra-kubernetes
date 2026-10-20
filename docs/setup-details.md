@@ -18,8 +18,8 @@ HTTP + Host → Kong (DB-less)
 Kong の `preserve_host: true` と Knative の
 `{{.Namespace}}--{{.Name}}.{{.Domain}}` を使う。
 Revision / Activator と連携する Kourier は維持する。
-Kong は宣言ファイルを読む単独 Gateway とし、DB・Kong Ingress Controller・
-Gateway API CRD・Helm は追加しない。Gateway API 自体の評価は含まない。
+Kong は DB-less のまま KIC で Ingress と TLS Secret を反映する。
+Gateway API CRD・Helm CLI・DB は追加しない。構成と移行は [KIC](kic.md) を参照。
 
 ## 新規 VM に一括インストール
 
@@ -56,6 +56,8 @@ API・Node・Deployment・Knative Service の起動待ちは行うが HTTP 検�
 | k0s | v1.34.3+k0s.0 |
 | Knative Serving / Kourier | knative-v1.20.0 |
 | Kong | 3.9.1 |
+| KIC | 3.4.3 |
+| CRD 配布元の Kong chart | 2.47.0 |
 | サンプル | hashicorp/http-echo:1.0.0 |
 
 バージョンは `scripts/infra.py`、`plugins/`、`apps/` で管理する。
@@ -106,14 +108,14 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 生成先は `.local/rendered/{apps,kong}.yaml`。
 新規ホスト向け Knative 設定も `.local/rendered/knative-config/` に生成するが、
 既存クラスタには適用しない。
-Kong の設定変更時は Pod の注釈ハッシュを更新して再起動する。
+ルートは Ingress で管理し、KIC が Kong へ反映する。
 専用 Namespace `sas47-apps` / `sas47-kong` を作成する。
 同名で所有ラベルのない Namespace があれば停止する。
 これらの Namespace に他のワークロードを追加しないこと。
 
 ## 公開と確認
 
-デフォルトは ClusterIP で外部へポートを開かない。Kong Admin API は無効。
+デフォルトは ClusterIP で外部へポートを開かない。Kong Admin API は Pod 内の127.0.0.1だけで待ち受ける。
 Caddy の80/443番とは競合させない。VM のターミナルで以下を実行する。
 
 ```bash
@@ -178,7 +180,7 @@ bin/infra                       # 操作入口
 configs/environment/            # 環境ごとの入力例とローカル設定
 configs/kube/k0s.yaml            # ホスト上の k0s 設定
 plugins/knative/config/          # Knative・Kourier の追加設定
-plugins/kong/manifests/          # Kong 宣言設定と Gateway
+plugins/kong/manifests/          # KIC・Ingress・Gateway
 apps/sas47/manifests/            # 検証用アプリ
 scripts/infra.py                # 設定生成・構築・配備・撤去
 docs/                           # 確認・撤去・移植方針

@@ -50,8 +50,9 @@ ClusterIP にし、入口を Kong だけにする。上流 Kourier の LoadBalan
 Kong も既定は ClusterIP とし、port-forward で検証する。
 
 参照元の Kong は KIC / Helm の検討段階で実装がない。
-今回の2経路は静的な宣言ルートで表現できるため DB-less の単独 Gateway を選んだ。
-Gateway API / KIC の検証や GitOps 運用整備は含めていない。
+当初の静的な DB-less Gateway から、現在は DB-less + KIC の Ingress 管理に変更した。
+KIC と Gateway は同じ Pod に置き、CRD は公式 chart の検証済みパッケージから取得する。
+Gateway API の検証や GitOps 運用整備は含めていない。詳細は [KIC](kic.md) を参照。
 
 参照元の k0s 1.32 / Serving 1.19 系から、新規構築の固定値は
 k0s 1.34 / Serving・Kourier 1.20 系にしている。

@@ -1,32 +1,3 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kong-declarative
-  namespace: sas47-kong
-data:
-  kong.yml: |
-    _format_version: "3.0"
-    _transform: true
-    services:
-      - name: standard
-        url: http://standard.sas47-apps.svc.cluster.local:80
-        routes:
-          - name: standard
-            hosts: ["$standard_domain"]
-            protocols: [http]
-            preserve_host: true
-      - name: serverless
-        url: http://$kourier_service:80
-        connect_timeout: 10000
-        read_timeout: 180000
-        write_timeout: 180000
-        retries: 0
-        routes:
-          - name: serverless
-            hosts: ["$knative_host"]
-            protocols: [http]
-            preserve_host: true
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,18 +10,18 @@ spec:
   template:
     metadata:
       labels: {app: sas47-kong}
-      annotations:
-        infra.sasano8.dev/config-sha256: "$config_hash"
     spec:
+      serviceAccountName: sas47-kong
       automountServiceAccountToken: false
       containers:
         - name: kong
           image: kong:3.9.1
           env:
             - {name: KONG_DATABASE, value: "off"}
-            - {name: KONG_DECLARATIVE_CONFIG, value: /etc/kong/config/kong.yml}
-            - {name: KONG_PROXY_LISTEN, value: "0.0.0.0:8000"}
-            - {name: KONG_ADMIN_LISTEN, value: "off"}
+            - {name: KONG_PROXY_LISTEN, value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"}
+            - {name: KONG_PORT_MAPS, value: "80:8000,443:8443"}
+            - {name: KONG_ADMIN_LISTEN, value: "127.0.0.1:8001"}
+            - {name: KONG_KIC, value: "on"}
             - {name: KONG_STATUS_LISTEN, value: "0.0.0.0:8100"}
             - {name: KONG_PROXY_ACCESS_LOG, value: /dev/stdout}
             - {name: KONG_PROXY_ERROR_LOG, value: /dev/stderr}
@@ -58,6 +29,7 @@ spec:
           ports:
             - {name: proxy, containerPort: 8000}
             - {name: status, containerPort: 8100}
+            - {name: proxy-tls, containerPort: 8443}
           readinessProbe:
             httpGet: {path: /status/ready, port: status}
             initialDelaySeconds: 5
@@ -67,11 +39,53 @@ spec:
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 512Mi}
+        - name: ingress-controller
+          image: kong/kubernetes-ingress-controller:3.4.3
+          env:
+            - {name: CONTROLLER_KONG_ADMIN_URL, value: "http://127.0.0.1:8001"}
+            - {name: CONTROLLER_INGRESS_CLASS, value: sas47-kong}
+            - {name: CONTROLLER_WATCH_NAMESPACE, value: "sas47-apps,sas47-kong"}
+            - {name: CONTROLLER_PUBLISH_SERVICE, value: sas47-kong/kong-proxy}
+            - {name: CONTROLLER_ELECTION_ID, value: sas47-kong}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+          args:
+            - --enable-controller-gwapi-gateway=false
+            - --enable-controller-gwapi-httproute=false
+            - --enable-controller-gwapi-reference-grant=false
+            - --enable-controller-gwapi-grpcroute=false
+            - --enable-controller-kong-service-facade=false
+          ports:
+            - {name: controller, containerPort: 10254}
+          readinessProbe:
+            httpGet: {path: /readyz, port: controller}
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: controller}
+            initialDelaySeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
           volumeMounts:
-            - {name: config, mountPath: /etc/kong/config, readOnly: true}
+            - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
       volumes:
-        - name: config
-          configMap: {name: kong-declarative}
+        - name: api-token
+          projected:
+            sources:
+              - serviceAccountToken: {expirationSeconds: 3600, path: token}
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - {key: ca.crt, path: ca.crt}
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef: {fieldPath: metadata.namespace}
+
 ---
 apiVersion: v1
 kind: Service
@@ -86,3 +100,6 @@ spec:
       port: 80
       targetPort: proxy
 $node_port_line
+    - name: https
+      port: 443
+      targetPort: proxy-tls

@@ -12,18 +12,23 @@ import shutil
 import string
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
 KNATIVE = "knative-v1.20.0"
+KONG_CHART = "2.47.0"
+# Published digest from Kong/charts gh-pages/index.yaml.
+KONG_CHART_SHA256 = "41679730cf7016c2d43e28176c2b5850a166d90f59e0003de7096318985a4696"
 TEMPLATE = "{{.Namespace}}--{{.Name}}.{{.Domain}}"
 OWNER = {"infra.sasano8.dev/owner": "sas47"}
 NAMESPACES = ("sas47-apps", "sas47-kong")
 MANIFESTS = {
     "apps": ROOT / "apps/sas47/manifests/apps.yaml.tmpl",
     "kong": ROOT / "plugins/kong/manifests/kong.yaml.tmpl",
+    "routes": ROOT / "plugins/kong/manifests/routes.yaml.tmpl",
 }
 
 
@@ -99,14 +104,10 @@ def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
     values = dict(c, knative_host="sas47-apps--serverless." + c["knative_domain"])
     values.update(
-        config_hash=hashlib.sha256(
-            json.dumps(c, sort_keys=True).encode()
-            + (ROOT / "plugins/kong/manifests/kong.yaml.tmpl").read_bytes()
-        ).hexdigest(),
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
     )
-    for name in ("apps", "kong"):
+    for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
     knative = output / "knative-config"
@@ -340,6 +341,7 @@ def deploy(cluster, c, output):
                     "metadata": {"name": name, "labels": OWNER}}
         cluster.call("create", "-f", "-", input=json.dumps(manifest), text=True)
     render(c, output)
+    install_kic_prerequisites(cluster, output)
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/standard", "-n", "sas47-apps", "--timeout=300s")
     cluster.call("wait", "ksvc/serverless", "-n", "sas47-apps", "--for=condition=Ready", "--timeout=300s")
@@ -347,9 +349,64 @@ def deploy(cluster, c, output):
     expected = "http://sas47-apps--serverless." + c["knative_domain"]
     if service.get("status", {}).get("url") != expected:
         raise ValueError(f"Knative URL が {expected} と異なります。既存ドメイン・TLS・namespace selector を確認してください")
+    cluster.call("apply", "-f", output / "routes.yaml")
     cluster.call("apply", "-f", output / "kong.yaml")
     cluster.call("rollout", "status", "deployment/kong", "-n", "sas47-kong", "--timeout=300s")
+    cluster.call("delete", "configmap/kong-declarative", "-n", "sas47-kong", "--ignore-not-found")
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
+
+
+KIC_CLUSTER_RESOURCES = (
+    ("ingressclass", "sas47-kong"),
+    ("clusterrolebinding", "sas47-kong"),
+    ("clusterrole", "sas47-kong"),
+)
+
+
+def check_kic_ownership(cluster):
+    found_resources = []
+    for kind, name in KIC_CLUSTER_RESOURCES:
+        result = cluster.call("get", kind, name, "--ignore-not-found", "-o", "json",
+                              capture_output=True, text=True)
+        if not result.stdout.strip():
+            continue
+        resource = json.loads(result.stdout)
+        if any(resource.get("metadata", {}).get("labels", {}).get(k) != v for k, v in OWNER.items()):
+            raise ValueError(f"所有ラベルのない既存リソースは変更しません: {kind}/{name}")
+        found_resources.append((kind, name))
+    return found_resources
+
+
+def install_kic_prerequisites(cluster, output):
+    check_kic_ownership(cluster)
+    cache = ROOT / ".local/downloads"
+    cache.mkdir(parents=True, exist_ok=True)
+    archive = cache / f"kong-{KONG_CHART}.tgz"
+    if not archive.exists():
+        # Move into the cache only after the full download and digest verification.
+        with tempfile.TemporaryDirectory() as tmp:
+            downloaded = Path(tmp) / archive.name
+            fetch(f"https://github.com/Kong/charts/releases/download/kong-{KONG_CHART}/{archive.name}", downloaded)
+            if hashlib.sha256(downloaded.read_bytes()).hexdigest() != KONG_CHART_SHA256:
+                raise ValueError("Kong chart の SHA-256 検証に失敗しました")
+            shutil.copyfile(downloaded, archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != KONG_CHART_SHA256:
+        raise ValueError(f"Kong chart キャッシュの SHA-256 が不一致です: {archive}")
+    with tarfile.open(archive, "r:gz") as chart:
+        # Read exactly this member; do not extract archive paths to the filesystem.
+        member = chart.extractfile("kong/crds/custom-resource-definitions.yaml")
+        if member is None:
+            raise ValueError("Kong chart に CRD がありません")
+        crds = member.read().decode("utf-8")
+    crd_names = re.findall(r"^  name: ([a-z0-9.-]+\.configuration\.konghq\.com)$", crds, re.MULTILINE)
+    if not crd_names:
+        raise ValueError("Kong CRD の名前を確認できませんでした")
+    target = output / "kong-crds.yaml"
+    target.write_text(crds)
+    cluster.call("apply", "--server-side", "--field-manager=sas47-kong-crds", "-f", target)
+    cluster.call("wait", "crd", *crd_names, "--for=condition=Established", "--timeout=120s")
+    for name in ("rbac.yaml", "controller.yaml"):
+        cluster.call("apply", "-f", ROOT / "plugins/kong/manifests" / name)
 
 
 def remove(cluster):
@@ -364,8 +421,11 @@ def remove(cluster):
         if any(found.get("metadata", {}).get("labels", {}).get(k) != v for k, v in OWNER.items()):
             raise ValueError(f"所有ラベルのない namespace は削除しません: {name}")
         names.append(name)
+    cluster_resources = check_kic_ownership(cluster)
     if names:
         cluster.call("delete", "namespace", *names, "--wait=true", "--timeout=180s")
+    for kind, name in cluster_resources:
+        cluster.call("delete", kind, name, "--ignore-not-found")
 
 
 def main():

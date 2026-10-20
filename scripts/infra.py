@@ -205,6 +205,44 @@ def install_host():
     return cluster
 
 
+def apply_knative_config(cluster, output):
+    # A Ready Pod/endpoint alone does not demonstrate admission calls from the API server.
+    # Probe the actual intended configuration without persisting it, then apply it.
+    deadline = time.monotonic() + 180
+    transient = (
+        "context deadline exceeded", "i/o timeout", "connection refused",
+        'no endpoints available for service "webhook"',
+        "net/http: request canceled", "TLS handshake timeout",
+    )
+    arguments = ("apply", "--server-side", "--force-conflicts",
+                 "--field-manager=sas47-knative-config", "--request-timeout=20s",
+                 "-f", output / "knative-config")
+    attempt = 0
+    while True:
+        attempt += 1
+        print(f"Knative webhook の実呼び出しを確認します（試行 {attempt}、待機上限180秒）。", flush=True)
+        try:
+            cluster.call(*arguments, "--dry-run=server", capture_output=True, text=True,
+                         timeout=min(25, max(1, deadline - time.monotonic())))
+            cluster.call(*arguments, capture_output=True, text=True,
+                         timeout=min(25, max(1, deadline - time.monotonic())))
+            print("Knative webhook の呼び出しと追加設定の適用が成功しました。", flush=True)
+            return
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or "") + (exc.stdout or "")
+            if not ("failed calling webhook" in detail and any(x in detail for x in transient)):
+                raise
+            print(detail.strip(), file=sys.stderr, flush=True)
+        except subprocess.TimeoutExpired:
+            # The bounded readiness request itself timed out; never count this as ready.
+            print("webhook 確認リクエストがタイムアウトしました。", file=sys.stderr, flush=True)
+        if time.monotonic() >= deadline:
+            raise ValueError("Knative webhook の呼び出しが180秒以内に安定しませんでした。"
+                             "scripts/check-knative-webhook.sh で状態を確認してください")
+        print("webhook の通信準備を待っています。5秒後に実呼び出しを再確認します。", flush=True)
+        time.sleep(min(5, max(0, deadline - time.monotonic())))
+
+
 def bootstrap(cluster, output):
     # Only called for a new, installer-owned host. Never in existing mode.
     with tempfile.TemporaryDirectory() as tmp:
@@ -226,11 +264,8 @@ def bootstrap(cluster, output):
         cluster.call("wait", "crd", "--all", "--for=condition=Established", "--timeout=120s")
         cluster.call(*upstream, "-f", tmp / "serving-core.yaml")
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
-        cluster.call("wait", "endpoints/webhook", "-n", "knative-serving",
-                     "--for=jsonpath={.subsets[0].addresses[0].ip}", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
-    cluster.call("apply", "--server-side", "--force-conflicts", "--field-manager=sas47-knative-config",
-                 "-f", output / "knative-config")
+    apply_knative_config(cluster, output)
     for namespace in ("knative-serving", "kourier-system"):
         cluster.call("rollout", "status", "deployment", "-n", namespace, "--timeout=300s")
 

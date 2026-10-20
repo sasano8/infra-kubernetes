@@ -26,7 +26,9 @@
 - domain-template は `{{.Namespace}}--{{.Name}}.{{.Domain}}`。
 - upstream の Knative 配布 YAML と追加設定を分離する。
 - 大きな CRD は server-side apply で適用する。
-- webhook の Deployment 起動に加え、Endpoints の IP が付くまで待つ。
+- webhook の Deployment 起動に加え、追加設定の server-side dry-run で
+  API サーバーからの webhook 呼び出し成功を確認する。
+  初回構築時の通信タイムアウト再現を受け、Endpoints の有無だけの待機から変更した。
 - 新規ホストに既存 CNI 設定があれば自動削除せず止まる。
 
 ## 今回の変更点

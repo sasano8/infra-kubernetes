@@ -182,7 +182,11 @@ docs/                           # 確認・撤去・移植方針
 
 `ys-method-dev/infra-k0s` を参照し、`configs/`・`plugins/`・`apps/` の区分、
 k0s の kube-router 設定、Knative 追加設定、CRD の server-side apply、
-webhook の Endpoints 待機、ホスト上の既存 CNI 設定の検出を取り込んだ。
+webhook の起動待機、ホスト上の既存 CNI 設定の検出を取り込んだ。
+webhook は Pod の Ready に加え、追加設定の server-side dry-run で
+API サーバーからの呼び出し成功を確認してから適用する。
+起動直後の webhook 通信タイムアウトは最大180秒待機する。
+設定内容のエラーは再試行せず停止する。
 詳細は [参照元との対応](docs/migration.md)を参照。
 Docker、Argo CD、Vault などは最小検証に含めない。
 

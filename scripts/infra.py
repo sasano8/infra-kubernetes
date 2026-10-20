@@ -16,6 +16,7 @@ import tarfile
 import tempfile
 import time
 import tls
+import inventory
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
@@ -440,6 +441,7 @@ def deploy(cluster, c, output):
     cluster.call("apply", "-f", output / "kong.yaml")
     cluster.call("rollout", "status", "deployment/kong", "-n", "kong-system", "--timeout=300s")
     cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
+    inventory.record(cluster, c)
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
 
 

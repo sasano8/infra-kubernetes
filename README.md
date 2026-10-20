@@ -109,6 +109,15 @@ DNS-01 のため証明書発行用に80番を開ける必要はない。
 
 ## 詳細
 
+古いリソースは Git 履歴との差分から確認・削除できる（`apply` は削除を実行する）。
+
+```bash
+sudo python3 scripts/prune-resources.py plan
+sudo python3 scripts/prune-resources.py apply
+```
+
+[削除候補・保留条件・配備記録の詳細](docs/pruning.md)
+
 - [構成・設定・既存クラスタへの追加](docs/setup-details.md)
 - [HTTPS・証明書の自動発行と更新](docs/https.md)
 - [KIC 構成と既存環境の移行](docs/kic.md)

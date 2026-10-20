@@ -13,7 +13,7 @@ VERSION = "v1.19.1"
 MANIFEST_SHA256 = "876a41a57e36b85619f4124b24b3deb80912b5ffed515f90e2f160b6e6338e81"
 PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
 STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
-OWNER = {"infra.sasano8.dev/owner": "sas47"}
+OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
 DEFAULTS = {
     "enabled": False,
     "email": "",
@@ -22,6 +22,12 @@ DEFAULTS = {
     "acme_server": PRODUCTION,
     "host_https_port": 443,
 }
+
+
+def is_owned(resource):
+    return resource.get("metadata", {}).get("labels", {}).get("infra.sasano8.dev/owner") in (
+        "infra-kubernetes", "sas47",  # The latter is accepted only for existing installations.
+    )
 
 
 def normalize(config):
@@ -62,13 +68,13 @@ def render(config, output):
         return
     issuer = {
         "apiVersion": "cert-manager.io/v1", "kind": "Issuer",
-        "metadata": {"name": "sas47-cloudflare", "namespace": "test", "labels": OWNER},
+        "metadata": {"name": "cloudflare-letsencrypt", "namespace": "test", "labels": OWNER},
         "spec": {"acme": {
             "server": options["acme_server"], "email": options["email"],
-            "privateKeySecretRef": {"name": "sas47-acme-account"},
+            "privateKeySecretRef": {"name": "letsencrypt-account"},
             "solvers": [{"selector": {"dnsZones": [options["cloudflare_zone"]]},
                          "dns01": {"cloudflare": {"apiTokenSecretRef": {
-                             "name": "sas47-cloudflare-api-token", "key": "api-token"}}}}],
+                             "name": "cloudflare-api-token", "key": "api-token"}}}}],
         }},
     }
     resources = [issuer]
@@ -80,7 +86,7 @@ def render(config, output):
             "apiVersion": "cert-manager.io/v1", "kind": "Certificate",
             "metadata": {"name": name, "namespace": "test", "labels": OWNER},
             "spec": {"secretName": name, "dnsNames": domains,
-                     "issuerRef": {"name": "sas47-cloudflare", "kind": "Issuer"}},
+                     "issuerRef": {"name": "cloudflare-letsencrypt", "kind": "Issuer"}},
         })
     target.write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": resources}, indent=2) + "\n")
 
@@ -91,7 +97,7 @@ def install_manager(cluster, fetch):
     owned = False
     if found.stdout.strip():
         namespace = json.loads(found.stdout)
-        owned = namespace.get("metadata", {}).get("labels", {}).get("infra.sasano8.dev/owner") == "sas47"
+        owned = is_owned(namespace)
         if not owned:
             print("既存の cert-manager を使用します。本体は変更しません。", flush=True)
     else:
@@ -114,7 +120,7 @@ def install_manager(cluster, fetch):
                 manifest.write_bytes(downloaded.read_bytes())
         if hashlib.sha256(manifest.read_bytes()).hexdigest() != MANIFEST_SHA256:
             raise ValueError("cert-manager キャッシュの SHA-256 が不一致です")
-        cluster.call("apply", "--server-side", "--field-manager=sas47-cert-manager", "-f", manifest)
+        cluster.call("apply", "--server-side", "--field-manager=cert-manager-install", "-f", manifest)
     for name in ("certificates.cert-manager.io", "issuers.cert-manager.io",
                  "orders.acme.cert-manager.io", "challenges.acme.cert-manager.io"):
         cluster.call("wait", "crd", name, "--for=condition=Established", "--timeout=120s")
@@ -139,16 +145,83 @@ def read_token_file(config):
     return token
 
 
-def existing_token(cluster):
-    # Query metadata/key names only. Existing credential values are never dumped.
+def find_token(cluster, allow_legacy=True):
+    # Query names only; never include credential values in logs or preflight output.
     template = 'present:{{with .metadata.labels}}{{index . "infra.sasano8.dev/owner"}}{{end}}:{{range $k,$v := .data}}{{$k}},{{end}}'
-    found = cluster.call("get", "secret/sas47-cloudflare-api-token", "-n", "test",
-                         "--ignore-not-found", "--request-timeout=10s", "-o", "go-template=" + template,
-                         capture_output=True, text=True, timeout=15)
-    present = found.stdout.strip()
-    if present and not present.startswith("present:sas47:"):
-        raise ValueError("所有ラベルのない既存 Cloudflare Secret は上書きしません")
-    return bool(present and "api-token" in present.split(":", 2)[2].split(","))
+    names = ("cloudflare-api-token", "sas47-cloudflare-api-token") if allow_legacy else ("cloudflare-api-token",)
+    for name in names:
+        result = cluster.call("get", f"secret/{name}", "-n", "test", "--ignore-not-found",
+                              "--request-timeout=10s", "-o", "go-template=" + template,
+                              capture_output=True, text=True, timeout=15)
+        if not result.stdout.strip():
+            continue
+        fields = result.stdout.strip().split(":", 2)
+        if len(fields) != 3 or fields[1] not in ("infra-kubernetes", "sas47"):
+            raise ValueError("所有ラベルのない既存 Cloudflare Secret は使用・上書きしません")
+        if "api-token" not in fields[2].split(","):
+            raise ValueError("既存 Cloudflare Secret に api-token キーがありません")
+        return name
+    return None
+
+
+def existing_token(cluster):
+    return find_token(cluster) is not None
+
+
+def apply_secret(cluster, name, data):
+    resource = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                "metadata": {"name": name, "namespace": "test", "labels": OWNER}, "data": data}
+    try:
+        cluster.call("apply", "--server-side", "--field-manager=certificate-secrets", "-f", "-",
+                     input=json.dumps(resource), text=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        raise ValueError("証明書用 Secret の登録に失敗しました（機密保護のため応答は非表示）") from None
+
+
+def copy_secret(cluster, source, destination, require_owner=False):
+    try:
+        result = cluster.call("get", f"secret/{source}", "-n", "test", "-o", "json",
+                              capture_output=True, text=True, timeout=15)
+        secret = json.loads(result.stdout)
+        if require_owner and not is_owned(secret):
+            raise ValueError("所有ラベルのない旧 Secret はコピーしません")
+        apply_secret(cluster, destination, secret["data"])
+    except (OSError, subprocess.SubprocessError, KeyError, json.JSONDecodeError):
+        raise ValueError("旧 Secret の移行に失敗しました（値は非表示）") from None
+    print(f"Secret を移行しました: {source} → {destination}（値は非表示）", flush=True)
+
+
+def migrate_acme_account(cluster):
+    result = cluster.call("get", "issuer/sas47-cloudflare", "-n", "test", "--ignore-not-found",
+                          "-o", "json", capture_output=True, text=True)
+    if not result.stdout.strip():
+        return
+    issuer = json.loads(result.stdout)
+    if not is_owned(issuer):
+        raise ValueError("所有ラベルのない旧 Issuer は移行しません")
+    if issuer.get("spec", {}).get("acme", {}).get("privateKeySecretRef", {}).get("name") != "sas47-acme-account":
+        raise ValueError("旧 Issuer の ACME アカウント参照が変更されています。自動移行しません")
+    for name in ("letsencrypt-account", "sas47-acme-account"):
+        result = cluster.call("get", f"secret/{name}", "-n", "test", "--ignore-not-found", "-o", "name",
+                              capture_output=True, text=True)
+        if name == "letsencrypt-account" and result.stdout.strip():
+            return
+        if name == "sas47-acme-account" and result.stdout.strip():
+            copy_secret(cluster, name, "letsencrypt-account")
+
+
+def tls_manager_migration(cluster):
+    legacy = False
+    for name in ("issuer/cloudflare-letsencrypt", "certificate/standard-tls", "certificate/knative-wildcard-tls"):
+        result = cluster.call("get", name, "-n", "test", "--ignore-not-found", "-o", "json",
+                              capture_output=True, text=True)
+        if not result.stdout.strip():
+            continue
+        resource = json.loads(result.stdout)
+        if not is_owned(resource):
+            raise ValueError(f"所有ラベルのない既存リソースは変更しません: {name}")
+        legacy = legacy or any(x.get("manager") == "sas47-tls" for x in resource["metadata"].get("managedFields", []))
+    return legacy
 
 
 def preflight(config, cluster=None):
@@ -169,30 +242,27 @@ def preflight(config, cluster=None):
 
 
 def ensure_token(cluster, config):
-    present = existing_token(cluster)
     token = read_token_file(config)
+    present = find_token(cluster, allow_legacy=token is None)
     if token is None:
         if present:
+            if present != "cloudflare-api-token":
+                copy_secret(cluster, present, "cloudflare-api-token", require_owner=True)
             print("登録済みの Cloudflare Secret を使用します。", flush=True)
             return
         raise ValueError(f"Cloudflare トークンファイルを権限600で配置してください: {token_file(config)}")
-    resource = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                "metadata": {"name": "sas47-cloudflare-api-token", "namespace": "test", "labels": OWNER},
-                "data": {"api-token": base64.b64encode(token.encode()).decode()}}
-    try:
-        cluster.call("apply", "--server-side", "--field-manager=sas47-cloudflare-secret", "-f", "-",
-                     input=json.dumps(resource), text=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        # Do not include API error payloads that might echo submitted Secret data.
-        raise ValueError("Cloudflare Secret の登録に失敗しました（機密保護のため応答は非表示）") from None
+    apply_secret(cluster, "cloudflare-api-token", {"api-token": base64.b64encode(token.encode()).decode()})
     print("Cloudflare Secret を登録しました（値は非表示）。", flush=True)
 
 
-def check_port(cluster, config):
+def check_port(cluster, config, legacy_ports=()):
     port = config["tls"]["host_https_port"]
     if port is None:
         return
-    found = cluster.call("get", "deployment/kong", "-n", "sas47-kong", "--ignore-not-found",
+    if port in legacy_ports:
+        print("HTTPS ポートは所有確認済みの旧 Kong から切り替えます。", flush=True)
+        return
+    found = cluster.call("get", "deployment/kong", "-n", "kong-system", "--ignore-not-found",
                          "-o", "json", capture_output=True, text=True)
     if found.stdout.strip():
         containers = json.loads(found.stdout)["spec"]["template"]["spec"]["containers"]
@@ -206,14 +276,17 @@ def check_port(cluster, config):
             raise ValueError(f"ホストの TCP {port} 番が使用中です。既存プロセスを停止・変更しません") from exc
 
 
-def prepare(cluster, config, output, fetch, apply_config):
+def prepare(cluster, config, output, fetch, apply_config, legacy_ports=()):
     if not config["tls"]["enabled"]:
         return
-    check_port(cluster, config)
+    check_port(cluster, config, legacy_ports)
     ensure_token(cluster, config)
     install_manager(cluster, fetch)
-    apply_config(cluster, output / "tls.json", "cert-manager", "sas47-tls", force=False)
-    cluster.call("wait", "issuer/sas47-cloudflare", "-n", "test", "--for=condition=Ready", "--timeout=180s")
+    migrate_acme_account(cluster)
+    # Only explicitly owned resources can transfer from the old field manager.
+    migrate_manager = tls_manager_migration(cluster)
+    apply_config(cluster, output / "tls.json", "cert-manager", "tls-config", force=migrate_manager)
+    cluster.call("wait", "issuer/cloudflare-letsencrypt", "-n", "test", "--for=condition=Ready", "--timeout=180s")
     print("DNS-01 による証明書発行を待っています（各証明書は最大600秒）。", flush=True)
     for name in ("standard-tls", "knative-wildcard-tls"):
         cluster.call("wait", f"certificate/{name}", "-n", "test", "--for=condition=Ready", "--timeout=600s")

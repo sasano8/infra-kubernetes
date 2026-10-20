@@ -57,7 +57,7 @@ chmod 600 .local/secrets/cloudflare-api-token
 ```
 
 `.local/` は Git 管理外。スクリプトはこのファイルから
-`test/sas47-cloudflare-api-token` Secret を作成する。
+`test/cloudflare-api-token` Secret を作成する。
 Secret 値はログや生成マニフェストへ出力せず、API エラーに値が含まれる場合も表示しない。
 再実行時はファイルがあれば更新し、なければ所有ラベル付きの登録済み Secret を使用する。
 更新を継続できるようトークンを有効に保つ。失効・ローテーション時はファイルを置き換えて `up` を実行する。
@@ -125,10 +125,10 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 通常経路も同様で、例えば `api.standard.tmp.ys-method-dev.com` は既存の
 `standard-tls` Secret を使える。証明書がワイルドカードでも、サブドメインの
 ワイルドカード Ingress は作らない。公開するホスト・パス・バックエンドごとに
-`ingressClassName: sas47-kong` の Ingress を追加する。
+`ingressClassName: kong-ingress` の Ingress を追加する。
 DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するため再起動は不要。
 未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
-現在の KIC は `test` / `sas47-kong` Namespace を監視する。
+現在の KIC は `test` / `kong-system` Namespace を監視する。
 
 例（`test` の既存 `hello-ssvc` Service を追加ホストで公開）:
 
@@ -141,7 +141,7 @@ metadata:
   annotations:
     konghq.com/preserve-host: "true"
 spec:
-  ingressClassName: sas47-kong
+  ingressClassName: kong-ingress
   tls:
     - hosts: [api.standard.tmp.ys-method-dev.com]
       secretName: standard-tls
@@ -190,7 +190,7 @@ sudo python3 scripts/check-routes.py
 sudo k0s kubectl -n test get issuer,certificate,certificaterequest,orders,challenges
 sudo k0s kubectl -n test describe certificate knative-wildcard-tls
 sudo k0s kubectl -n cert-manager logs deployment/cert-manager --tail=100
-sudo k0s kubectl -n sas47-kong logs deployment/kong -c ingress-controller --tail=100
+sudo k0s kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
 ```
 
 Secret 本文は表示しない。DNS API の権限不足、ゾーン名の相違、TXT レコードの伝播、
@@ -212,3 +212,7 @@ cert-manager 本体と CRD は他用途に利用され得るため自動削除�
 
 証明書発行・更新・外部 HTTPS の実環境での動作は未確認。
 設定生成の確認は実際の ACME 発行の検証とは区別する。
+
+リソース名の移行では旧 Secret / ACME アカウントを所有確認後に引き継ぐ。
+新しい名前は `cloudflare-api-token` / `cloudflare-letsencrypt` / `letsencrypt-account`。
+詳細は [リソース名と移行](kic.md#用途に基づくリソース名) を参照。

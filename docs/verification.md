@@ -54,7 +54,7 @@ sudo python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
 VM のターミナル A:
 
 ```bash
-sudo k0s kubectl -n sas47-kong port-forward service/kong-proxy 8080:80
+sudo k0s kubectl -n kong-system port-forward service/kong-proxy 8080:80
 ```
 
 VM のターミナル B（リポジトリのルート）:
@@ -82,7 +82,7 @@ cat .local/results/knative.body
 # 期待: HTTP 200 / knative-service
 
 k -n test get ksvc hello -o yaml > .local/results/knative-service.yaml
-k -n sas47-kong logs deployment/kong -c kong --tail=100 > .local/results/kong.log
+k -n kong-system logs deployment/kong -c kong --tail=100 > .local/results/kong.log
 ```
 
 HTTP が両方200で、本文が別々の期待値であることを確認する。
@@ -138,8 +138,8 @@ date -u +%FT%TZ > .local/results/recovered-at.txt
 webhook のタイムアウト時は [確認スクリプト](webhook-diagnostics.md)で状態をまとめて取得できる。
 
 ```bash
-k -n sas47-kong get pods,svc
-k -n sas47-kong logs deployment/kong -c kong --tail=100
+k -n kong-system get pods,svc
+k -n kong-system logs deployment/kong -c kong --tail=100
 k -n test get ksvc,revision,deploy,pod,svc
 k -n test describe ksvc hello
 k -n test get events --sort-by=.lastTimestamp

@@ -11,12 +11,12 @@ kubectl config current-context
 ./bin/infra remove
 ```
 
-対象は所有ラベル `infra.sasano8.dev/owner=sas47` が付いた
-`test` / `sas47-kong` の2 Namespace と、その配下の全リソース。
+対象は所有ラベル `infra.sasano8.dev/owner=infra-kubernetes` が付いた
+`test` / `kong-system` の2 Namespace と、その配下の全リソース。
 両方のラベルを確認してから削除する。所有ラベルがなければ停止する。
 この Namespace に検証以外のワークロードを置かないこと。
 
-専用 IngressClass・ClusterRole・ClusterRoleBinding（各 `sas47-kong`）も所有ラベルを確認して削除する。
+専用 IngressClass・ClusterRole・ClusterRoleBinding（各 `kong-ingress`）も所有ラベルを確認して削除する。
 Caddy、Knative、Kourier、共通設定、共有され得る Kong CRD、cert-manager 本体・CRD、k0s は削除しない。
 新規ホストで作った Knative / Kourier も残る。
 再配備には同じ設定で `deploy` または `up` を実行する。
@@ -41,3 +41,6 @@ sudo reboot
 
 TLS 有効時は検証用 Namespace 内の Issuer・Certificate・Cloudflare トークン Secret も削除する。
 TXT レコードの後片付けのため、削除中は cert-manager を起動したままにする。
+
+既存環境の互換性のため、旧 owner ラベルも所有確認で受け入れる。
+旧 Kong Namespace は自動削除対象に含めない。新しい入口で確認後に整理する。

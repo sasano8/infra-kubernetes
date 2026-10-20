@@ -4,8 +4,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: sas47-kong
-  labels: {infra.sasano8.dev/owner: sas47}
+  name: kong-ingress
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
 rules:
 - apiGroups:
   - ""

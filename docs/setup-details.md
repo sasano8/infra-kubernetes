@@ -116,7 +116,7 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 新規ホスト向け Knative 設定も `.local/rendered/knative-config/` に生成するが、
 既存クラスタには適用しない。
 ルートは Ingress で管理し、KIC が Kong へ反映する。
-専用 Namespace `test` / `sas47-kong` を作成する。
+専用 Namespace `test` / `kong-system` を作成する。
 同名で所有ラベルのない Namespace があれば停止する。
 これらの Namespace に他のワークロードを追加しないこと。
 
@@ -126,7 +126,7 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 Caddy の80/443番とは競合させない。VM のターミナルで以下を実行する。
 
 ```bash
-sudo k0s kubectl -n sas47-kong port-forward service/kong-proxy 8080:80
+sudo k0s kubectl -n kong-system port-forward service/kong-proxy 8080:80
 ```
 
 別ターミナルから curl を送る。PC から使う場合は SSH トンネルで

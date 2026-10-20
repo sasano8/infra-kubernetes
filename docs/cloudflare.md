@@ -28,7 +28,7 @@ HTTPS は Cloudflare で終端し、同じ EC2 上の cloudflared から Kong �
 
 ```bash
 sudo ./bin/infra deploy --kubectl 'k0s kubectl'
-sudo k0s kubectl -n sas47-kong get service kong-proxy
+sudo k0s kubectl -n kong-system get service kong-proxy
 sudo k0s kubectl get nodes -o wide
 ```
 
@@ -142,5 +142,5 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 ```
 
 ClusterIP への変更時に既存 nodePort の保持が原因で拒否された場合は、
-検証専用 Service `sas47-kong/kong-proxy` だけを削除してから同じ deploy を実行する。
+検証専用 Service `kong-system/kong-proxy` だけを削除してから同じ deploy を実行する。
 この操作の間、検証入口は一時停止する。

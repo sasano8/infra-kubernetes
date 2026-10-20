@@ -19,8 +19,8 @@ API トークンは KIC コンテナだけにマウントする。
 Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の Service は変更しない。
 両 Ingress で Host を保持し、Knative の ingress は Kourier のままにする。
 
-専用 IngressClass は `sas47-kong`。デフォルトの IngressClass には設定しない。
-KIC の監視対象 Namespace は `test` と `sas47-kong` に限定する。
+専用 IngressClass は `kong-ingress`。デフォルトの IngressClass には設定しない。
+KIC の監視対象 Namespace は `test` と `kong-system` に限定する。
 RBAC は公式 KIC v3.4.3 の権限定義を基にしており、ClusterRole を含む。
 既存の Caddy・別 IngressClass のルートは採用しない。
 Gateway API のコントローラは無効にし、Gateway API CRD は追加しない。
@@ -38,7 +38,7 @@ sudo python3 scripts/check-routes.py
 
 Kong の設定が ConfigMap 管理から Ingress 管理へ切り替わり、Pod は更新される。
 単一 Replica の検証環境のため、移行中に一時的な通信断が生じる場合がある。
-既存の `sas47-kong/kong-proxy` Service 名、HTTP ポート、`node_port` 設定は維持する。
+新しい入口は `kong-system/kong-proxy`。HTTP ポートと `node_port` 設定は維持する。
 KIC 付き Pod の rollout 成功後、旧 `kong-declarative` ConfigMap を削除する。
 ルート設定の変更は KIC が反映するため、以後は ConfigMap のハッシュによる再起動は不要。
 
@@ -98,11 +98,11 @@ Issuer・Certificate・TLS Secret は `test` に置き、KIC が Kong に反映�
 ## 状態確認
 
 ```bash
-sudo k0s kubectl -n sas47-kong get pods
-sudo k0s kubectl -n sas47-kong logs deployment/kong -c ingress-controller --tail=100
-sudo k0s kubectl -n sas47-kong logs deployment/kong -c kong --tail=100
+sudo k0s kubectl -n kong-system get pods
+sudo k0s kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
+sudo k0s kubectl -n kong-system logs deployment/kong -c kong --tail=100
 sudo k0s kubectl -n test get ingress
-sudo k0s kubectl get ingressclass sas47-kong
+sudo k0s kubectl get ingressclass kong-ingress
 ```
 
 KIC 移行後はログ取得時にコンテナ名を指定する。
@@ -114,3 +114,28 @@ KIC 移行後はログ取得時にコンテナ名を指定する。
 共有され得る Kong CRD は残し、Knative・Kourier・他のコントローラは削除しない。
 KIC の RBAC は [公式 v3.4.3](https://github.com/Kong/kubernetes-ingress-controller/tree/v3.4.3/config/rbac)
 を参照しており、ライセンスは `plugins/kong/LICENSE.kic` に保存している。
+
+## 用途に基づくリソース名
+
+課題番号をリソース名に使わず、以下へ統一した。
+
+| 用途 | 名前 |
+| --- | --- |
+| Kong Namespace | `kong-system` |
+| IngressClass / ServiceAccount / ClusterRole / ClusterRoleBinding | `kong-ingress` |
+| Cloudflare API Secret（Namespace: test） | `cloudflare-api-token` |
+| DNS-01 Issuer（Namespace: test） | `cloudflare-letsencrypt` |
+| ACME アカウント Secret（Namespace: test） | `letsencrypt-account` |
+| 所有ラベル値 | `infra-kubernetes` |
+
+既存環境は同じ `up` で移行する。旧 Secret は所有ラベル確認後にコピーし、値は表示しない。
+トークンファイルがある場合は、新しい Secret にその値を登録する。
+所有確認済みの旧 Issuer が参照する ACME アカウントキーも引き継ぐ。
+既存 Certificate の参照更新では、所有確認済みの対象に限り旧 field-manager から管理を移す。
+Issuer 名の変更により証明書が再発行される場合がある。
+
+旧 Kong は証明書の準備とアプリの Ready 確認後に0 Replicaへ変更し、
+Pod の消滅を待ってから新 Namespace の Kong を起動する。
+この切り替え中は一時的な通信断がある。旧 Namespace 自体や旧 Secret は自動削除しない。
+移行後は `sudo python3 scripts/check-routes.py` と外部 HTTPS の両方を確認する。
+旧リソースの名前は移行用の検出処理だけに残し、新規リソースには使用しない。

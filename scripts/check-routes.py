@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify both SAS-47 HTTP routes and Knative recovery after scaling to zero."""
+"""Verify both sample application HTTP routes and Knative recovery after scaling to zero."""
 import argparse
 import http.client
 import json
@@ -45,7 +45,7 @@ def main():
     if not command:
         parser.error("kubectl command must not be empty")
     kubectl = command.copy()
-    command += ["-n", "sas47-kong", "port-forward", "--address=127.0.0.1",
+    command += ["-n", "kong-system", "port-forward", "--address=127.0.0.1",
                 "service/kong-proxy", f"{args.port}:80"]
     print("+ " + shlex.join(command), flush=True)
     ready = threading.Event()

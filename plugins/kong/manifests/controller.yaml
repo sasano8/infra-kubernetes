@@ -1,28 +1,28 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: sas47-kong
-  namespace: sas47-kong
+  name: kong-ingress
+  namespace: kong-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: sas47-kong
-  labels: {infra.sasano8.dev/owner: sas47}
+  name: kong-ingress
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: sas47-kong
+  name: kong-ingress
 subjects:
   - kind: ServiceAccount
-    name: sas47-kong
-    namespace: sas47-kong
+    name: kong-ingress
+    namespace: kong-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: sas47-kong-leader
-  namespace: sas47-kong
+  name: kong-ingress-leader
+  namespace: kong-system
 rules:
   - apiGroups: [coordination.k8s.io]
     resources: [leases]
@@ -34,21 +34,21 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: sas47-kong-leader
-  namespace: sas47-kong
+  name: kong-ingress-leader
+  namespace: kong-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: sas47-kong-leader
+  name: kong-ingress-leader
 subjects:
   - kind: ServiceAccount
-    name: sas47-kong
-    namespace: sas47-kong
+    name: kong-ingress
+    namespace: kong-system
 ---
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
-  name: sas47-kong
-  labels: {infra.sasano8.dev/owner: sas47}
+  name: kong-ingress
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
 spec:
   controller: ingress-controllers.konghq.com/kong

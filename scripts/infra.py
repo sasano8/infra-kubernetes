@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host installation and isolated SAS-47 resources; Python standard library only."""
+"""Host installation and isolated sample application resources; Python standard library only."""
 import argparse
 import hashlib
 import json
@@ -24,8 +24,8 @@ KONG_CHART = "2.47.0"
 # Published digest from Kong/charts gh-pages/index.yaml.
 KONG_CHART_SHA256 = "41679730cf7016c2d43e28176c2b5850a166d90f59e0003de7096318985a4696"
 TEMPLATE = "{{.Name}}-{{.Namespace}}-ksvc.{{.Domain}}"
-OWNER = {"infra.sasano8.dev/owner": "sas47"}
-NAMESPACES = ("test", "sas47-kong")
+OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
+NAMESPACES = ("test", "kong-system")
 MANIFESTS = {
     "apps": ROOT / "apps/hello/manifests/apps.yaml.tmpl",
     "kong": ROOT / "plugins/kong/manifests/kong.yaml.tmpl",
@@ -320,7 +320,7 @@ def apply_serving_core(cluster, source):
                 print(f"Knative 管理の既存リソースを保持します: {kind}/{metadata['name']}", flush=True)
                 continue
         retained.append(resource)
-    cluster.call("apply", "--server-side", "--field-manager=sas47-upstream", "-f", "-",
+    cluster.call("apply", "--server-side", "--field-manager=knative-upstream", "-f", "-",
                  input=json.dumps({"apiVersion": "v1", "kind": "List", "items": retained}), text=True)
 
 
@@ -340,21 +340,39 @@ def bootstrap(cluster, output):
         (tmp / "kourier.yaml").write_text(
             kourier.replace("  type: LoadBalancer\n", "  type: ClusterIP\n")
         )
-        upstream = ("apply", "--server-side", "--field-manager=sas47-upstream")
+        upstream = ("apply", "--server-side", "--field-manager=knative-upstream")
         cluster.call(*upstream, "-f", tmp / "serving-crds.yaml")
         cluster.call("wait", "crd", "--all", "--for=condition=Established", "--timeout=120s")
         apply_serving_core(cluster, tmp / "serving-core.yaml")
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
-    apply_admission_config(cluster, output / "knative-config", "Knative", "sas47-knative-config", force=True)
+    apply_admission_config(cluster, output / "knative-config", "Knative", "knative-config", force=True)
     for namespace in ("knative-serving", "kourier-system"):
         cluster.call("rollout", "status", "deployment", "-n", namespace, "--timeout=300s")
+
+
+def find_legacy_gateway(cluster):
+    # Old resources are identified by both their dedicated namespace and original selector.
+    result = cluster.call("get", "namespace/sas47-kong", "--ignore-not-found", "-o", "json",
+                          capture_output=True, text=True)
+    if not result.stdout.strip():
+        return {}
+    if not tls.is_owned(json.loads(result.stdout)):
+        raise ValueError("所有ラベルのない旧 Kong Namespace は移行しません")
+    result = cluster.call("get", "deployment/kong", "-n", "sas47-kong", "--ignore-not-found", "-o", "json",
+                          capture_output=True, text=True)
+    if not result.stdout.strip():
+        return {}
+    deployment = json.loads(result.stdout)
+    if deployment.get("spec", {}).get("selector", {}).get("matchLabels") != {"app": "sas47-kong"}:
+        raise ValueError("旧 Kong の selector が変更されています。自動移行しません")
+    return deployment
 
 
 def deploy(cluster, c, output):
     network = cluster.get("configmap/config-network", "-n", "knative-serving")
     if network.get("data", {}).get("domain-template") != TEMPLATE:
-        raise ValueError("既存 domain-template が SAS-47 の前提と異なります。自動変更しません")
+        raise ValueError("既存 domain-template がこの構成の前提と異なります。自動変更しません")
     # Reserve namespaces before writing anything inside them. Do not adopt unrelated namespaces.
     missing = []
     for name in NAMESPACES:
@@ -362,7 +380,7 @@ def deploy(cluster, c, output):
                               capture_output=True, text=True)
         if result.stdout.strip():
             found = json.loads(result.stdout)
-            if any(found.get("metadata", {}).get("labels", {}).get(k) != v for k, v in OWNER.items()):
+            if not tls.is_owned(found):
                 raise ValueError(f"所有ラベルのない既存 namespace を変更しません: {name}")
         else:
             missing.append(name)
@@ -372,7 +390,10 @@ def deploy(cluster, c, output):
         cluster.call("create", "-f", "-", input=json.dumps(manifest), text=True)
     render(c, output)
     install_kic_prerequisites(cluster, output)
-    tls.prepare(cluster, c, output, fetch, apply_admission_config)
+    legacy_gateway = find_legacy_gateway(cluster)
+    legacy_ports = [p["hostPort"] for container in legacy_gateway.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+                    for p in container.get("ports", []) if p.get("hostPort")] if legacy_gateway.get("spec", {}).get("replicas", 1) != 0 else []
+    tls.prepare(cluster, c, output, fetch, apply_admission_config, legacy_ports)
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
     cluster.call("wait", "ksvc/hello", "-n", "test", "--for=condition=Ready", "--timeout=300s")
@@ -390,17 +411,25 @@ def deploy(cluster, c, output):
                              "ドメイン・TLS・namespace selector を確認してください")
         print(f"Knative の URL / Ready 更新を待っています: {expected}", flush=True)
         time.sleep(5)
+    if legacy_gateway:
+        print("旧 Kong を停止し、kong-system へ切り替えます。", flush=True)
+        if legacy_gateway.get("spec", {}).get("replicas", 1) != 0:
+            cluster.call("scale", "deployment/kong", "-n", "sas47-kong", "--replicas=0")
+        pods = cluster.call("get", "pods", "-n", "sas47-kong", "-l", "app=sas47-kong", "-o", "name",
+                            capture_output=True, text=True).stdout.split()
+        if pods:
+            cluster.call("wait", *pods, "-n", "sas47-kong", "--for=delete", "--timeout=180s")
     cluster.call("apply", "-f", output / "routes.yaml")
     cluster.call("apply", "-f", output / "kong.yaml")
-    cluster.call("rollout", "status", "deployment/kong", "-n", "sas47-kong", "--timeout=300s")
-    cluster.call("delete", "configmap/kong-declarative", "-n", "sas47-kong", "--ignore-not-found")
+    cluster.call("rollout", "status", "deployment/kong", "-n", "kong-system", "--timeout=300s")
+    cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
 
 
 KIC_CLUSTER_RESOURCES = (
-    ("ingressclass", "sas47-kong"),
-    ("clusterrolebinding", "sas47-kong"),
-    ("clusterrole", "sas47-kong"),
+    ("ingressclass", "kong-ingress"),
+    ("clusterrolebinding", "kong-ingress"),
+    ("clusterrole", "kong-ingress"),
 )
 
 
@@ -412,7 +441,7 @@ def check_kic_ownership(cluster):
         if not result.stdout.strip():
             continue
         resource = json.loads(result.stdout)
-        if any(resource.get("metadata", {}).get("labels", {}).get(k) != v for k, v in OWNER.items()):
+        if not tls.is_owned(resource):
             raise ValueError(f"所有ラベルのない既存リソースは変更しません: {kind}/{name}")
         found_resources.append((kind, name))
     return found_resources
@@ -444,7 +473,7 @@ def install_kic_prerequisites(cluster, output):
         raise ValueError("Kong CRD の名前を確認できませんでした")
     target = output / "kong-crds.yaml"
     target.write_text(crds)
-    cluster.call("apply", "--server-side", "--field-manager=sas47-kong-crds", "-f", target)
+    cluster.call("apply", "--server-side", "--field-manager=kong-crds", "-f", target)
     cluster.call("wait", "crd", *crd_names, "--for=condition=Established", "--timeout=120s")
     for name in ("rbac.yaml", "controller.yaml"):
         cluster.call("apply", "-f", ROOT / "plugins/kong/manifests" / name)
@@ -459,7 +488,7 @@ def remove(cluster):
         if not result.stdout.strip():
             continue
         found = json.loads(result.stdout)
-        if any(found.get("metadata", {}).get("labels", {}).get(k) != v for k, v in OWNER.items()):
+        if not tls.is_owned(found):
             raise ValueError(f"所有ラベルのない namespace は削除しません: {name}")
         names.append(name)
     cluster_resources = check_kic_ownership(cluster)

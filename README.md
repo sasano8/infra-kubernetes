@@ -12,6 +12,8 @@ flowchart LR
 ```
 
 KIC は経路設定を管理するため、リクエストの経路図には含めていない。
+Kong の Namespace は `kong-system`、アプリは `test`。
+証明書用 Secret は `cloudflare-api-token`、Issuer は `cloudflare-letsencrypt` を使う。
 
 ## インストール
 

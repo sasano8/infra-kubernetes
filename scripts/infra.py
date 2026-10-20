@@ -243,6 +243,32 @@ def apply_knative_config(cluster, output):
         time.sleep(min(5, max(0, deadline - time.monotonic())))
 
 
+def apply_serving_core(cluster, source):
+    # Use kubectl to decode the official YAML; no additional Python YAML dependency.
+    converted = cluster.call("create", "--dry-run=client", "--validate=false", "-f", source,
+                             "-o", "json", capture_output=True, text=True)
+    manifest = json.loads(converted.stdout)
+    resources = manifest["items"] if manifest.get("kind") == "List" else [manifest]
+    retained = []
+    for resource in resources:
+        kind = resource["kind"]
+        metadata = resource["metadata"]
+        dynamic = kind in ("MutatingWebhookConfiguration", "ValidatingWebhookConfiguration")
+        dynamic = dynamic or (kind == "Secret" and metadata.get("namespace") == "knative-serving"
+                              and metadata["name"] == "webhook-certs")
+        if dynamic:
+            arguments = ["get", kind, metadata["name"], "--ignore-not-found", "-o", "name"]
+            if metadata.get("namespace"):
+                arguments += ["-n", metadata["namespace"]]
+            found = cluster.call(*arguments, capture_output=True, text=True)
+            if found.stdout.strip():
+                print(f"Knative 管理の既存リソースを保持します: {kind}/{metadata['name']}", flush=True)
+                continue
+        retained.append(resource)
+    cluster.call("apply", "--server-side", "--field-manager=sas47-upstream", "-f", "-",
+                 input=json.dumps({"apiVersion": "v1", "kind": "List", "items": retained}), text=True)
+
+
 def bootstrap(cluster, output):
     # Only called for a new, installer-owned host. Never in existing mode.
     with tempfile.TemporaryDirectory() as tmp:
@@ -262,7 +288,7 @@ def bootstrap(cluster, output):
         upstream = ("apply", "--server-side", "--field-manager=sas47-upstream")
         cluster.call(*upstream, "-f", tmp / "serving-crds.yaml")
         cluster.call("wait", "crd", "--all", "--for=condition=Established", "--timeout=120s")
-        cluster.call(*upstream, "-f", tmp / "serving-core.yaml")
+        apply_serving_core(cluster, tmp / "serving-core.yaml")
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
     apply_knative_config(cluster, output)

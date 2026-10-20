@@ -38,6 +38,10 @@
 Knative の追加設定は専用 field-manager で管理し、ドメイン変更時に旧キーを除去する。
 設定の所有権を上書きする `--force-conflicts` は、専用新規ホストの Knative
 追加設定だけに限定した。上流のリソースには使用しない。
+Serving の webhook 設定と `webhook-certs` Secret は、存在しなければ作成し、
+再実行時は Knative 自身が管理する内容を保持する。
+これにより、自動更新された webhook の rules と上流初期値の競合を避ける。
+この再実行処理はバージョンアップ手順ではない。
 
 参照元は Kourier に 30080 / 30443 を設定するが、今回は新規 VM の Kourier を
 ClusterIP にし、入口を Kong だけにする。上流 Kourier の LoadBalancer 指定は

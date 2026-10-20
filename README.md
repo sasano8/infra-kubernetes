@@ -4,7 +4,7 @@ EC2 上に k0s・Kong・Knative を構築し、通常 Service と Knative の2�
 
 ```mermaid
 flowchart LR
-    Client[確認スクリプト] -->|port-forward / HTTP + Host| Kong
+    HTTP[HTTP リクエスト] --> Kong
     Kong --> Service[通常の Kubernetes Service]
     Kong --> Kourier --> Knative[Knative Service]
 ```

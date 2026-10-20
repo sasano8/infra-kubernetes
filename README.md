@@ -139,11 +139,14 @@ sudo python3 scripts/check-routes.py
    Pod が0件になるまで待つ。その後、同じ Kong 入口に再アクセスし、
    HTTP 200・本文 `knative-service`・Ready Pod の再生成を確認する。
 
-3では次のように表示する。5秒ごとに Pod 数を取得し、最大600秒待機する。
+3の待機時間は、最後のアクセスから通常1〜2分程度を目安にする。
+この構成の autoscaling window は30秒だが、スケールゼロの猶予期間や
+Pod の終了処理もあるため、1分で終わる保証はない。
+5秒ごとに Pod 数を取得し、最大600秒待機する。
 Terminating / Error の Pod も削除されて0件になるまで待つ。
 
 ```text
-[scale-zero] Pod がゼロ件になるまで待機します（最大 600 秒）。Knative への別のアクセスも停止してください。
+[scale-zero] Pod がゼロ件になるまで待機します（目安: 最後のアクセスから1〜2分程度、最大 600 秒）。Knative への別のアクセスも停止してください。
 ```
 
 待機中は別ターミナルや監視からも検証用 Knative Service にアクセスしないこと。

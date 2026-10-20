@@ -121,7 +121,8 @@ def main():
                 print("\n[scale-zero] テスト内容: Knative の Pod が0件になった後、同じ Kong 入口へ"
                       "再アクセスし、HTTP 200・本文 knative-service・Ready Pod の再生成を確認します。",
                       flush=True)
-                print(f"\n[scale-zero] Pod がゼロ件になるまで待機します（最大 {args.scale_zero_timeout} 秒）。"
+                print("\n[scale-zero] Pod がゼロ件になるまで待機します（目安: 最後のアクセスから1〜2分程度、"
+                      f"最大 {args.scale_zero_timeout} 秒）。"
                       "Knative への別のアクセスも停止してください。", flush=True)
                 wait_for_pods(zero=True, timeout=args.scale_zero_timeout)
                 # No HTTP requests are sent during the zero-Pod wait above.

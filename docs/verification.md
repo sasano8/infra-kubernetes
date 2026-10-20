@@ -29,6 +29,8 @@ port-forward を停止する。既存の8080番の port-forward は停止しな�
 Terminating / Error の Pod も残っている間はゼロと扱わない。
 待機中は Knative に HTTP リクエストを送らず、Pod が0件になった後、同じ Kong 入口へ
 リクエストして HTTP 200・`knative-service` と Ready Pod の再生成を確認する。
+待機時間の目安は最後のアクセスから通常1〜2分程度。
+autoscaling window の30秒に加え、スケールゼロの猶予期間や Pod の終了処理があるため前後する。
 すべて成功すれば `3/3 成功`。待機上限は既定600秒で、API エラーや期限切れは失敗とする。
 Knative の初回リクエストが失敗した場合、復帰確認はスキップし終了コード1を返す。
 実行中は別ターミナルや監視から Knative にアクセスしないこと。

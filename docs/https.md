@@ -19,6 +19,7 @@ Cloudflare の DNS で次の A レコードを **DNS only** として登録し�
 | 名前 | 用途 |
 | --- | --- |
 | `standard.tmp.ys-method-dev.com` | 通常 Service |
+| `*.standard.tmp.ys-method-dev.com` | 通常経路に追加するサブドメイン（公開する場合） |
 | `knative.tmp.ys-method-dev.com` | Knative 用ドメインの証明書対象 |
 | `*.knative.tmp.ys-method-dev.com` | 各 Knative Service |
 
@@ -105,13 +106,51 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 
 | Certificate / Secret | 対象 |
 | --- | --- |
-| `sas47-apps/standard-tls` | `standard_domain` |
+| `sas47-apps/standard-tls` | `standard_domain` と `*.standard_domain` |
 | `sas47-apps/knative-wildcard-tls` | `knative_domain` と `*.knative_domain` |
 
 証明書の Ready を各最大600秒待ち、その後に TLS Secret を参照する Ingress と Kong を配備する。
 追加の Knative Service も同じ1階層の命名ならワイルドカード証明書を共用できる。
 ただしルートとなる Ingress は追加が必要で、任意のホストへの初回アクセス時に
 自動で証明書やルートを作る On-Demand TLS ではない。
+
+通常経路も同様で、例えば `api.standard.tmp.ys-method-dev.com` は既存の
+`standard-tls` Secret を使える。証明書がワイルドカードでも、サブドメインの
+ワイルドカード Ingress は作らない。公開するホスト・パス・バックエンドごとに
+`ingressClassName: sas47-kong` の Ingress を追加する。
+DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するため再起動は不要。
+未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
+現在の KIC は `sas47-apps` / `sas47-kong` Namespace を監視する。
+
+例（`sas47-apps` の既存 `standard` Service を追加ホストで公開）:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: standard-api
+  namespace: sas47-apps
+  annotations:
+    konghq.com/preserve-host: "true"
+spec:
+  ingressClassName: sas47-kong
+  tls:
+    - hosts: [api.standard.tmp.ys-method-dev.com]
+      secretName: standard-tls
+  rules:
+    - host: api.standard.tmp.ys-method-dev.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: standard
+                port: {number: 80}
+```
+
+この例は説明用で、自動配備しない。公開する場合は対象ホストの DNS も用意する。
+別 Namespace で使う場合、KIC の監視範囲と証明書 Secret の配置も整える。
 
 Kong の8443番を CNI の hostPort でホストの443番へ公開する。
 `node_port: null` でも HTTPS にはアクセスできる。

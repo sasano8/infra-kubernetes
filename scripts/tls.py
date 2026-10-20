@@ -73,7 +73,7 @@ def render(config, output):
     }
     resources = [issuer]
     for name, domains in (
-        ("standard-tls", [config["standard_domain"]]),
+        ("standard-tls", [config["standard_domain"], "*." + config["standard_domain"]]),
         ("knative-wildcard-tls", [config["knative_domain"], "*." + config["knative_domain"]]),
     ):
         resources.append({

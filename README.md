@@ -65,6 +65,8 @@ port-forward を自動で起動し、次を確認する。
 
 Caddy と同じ方式で、cert-manager が証明書を自動発行・更新し、KIC が Kong に反映する。
 Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック IP へ向ける。
+通常・Knative の両ドメインと、それぞれの `*.` の証明書を発行する。
+公開するホスト・パスは別途 Ingress で指定し、KIC が Kong に動的に反映する。
 
 1. [トークン配置手順](docs/https.md#2-cloudflare-api-トークンを配置)で Cloudflare の API トークンを保存する。
 2. `local.json` に次の `tls` 設定を追加する。メールアドレスは自分のものに変更する。

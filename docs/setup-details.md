@@ -11,7 +11,7 @@ Docker は不要で、コンテナ実行には k0s 内蔵 containerd を使う�
 HTTP + Host → Kong (DB-less)
                 ├─ standard.example.test
                 │    └─ Service → Deployment → "standard-service"
-                └─ hello-apps-serverless.example.test
+                └─ test-hello.example.test
                      └─ Kourier → Knative → "knative-service"
 ```
 
@@ -110,7 +110,7 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 新規ホスト向け Knative 設定も `.local/rendered/knative-config/` に生成するが、
 既存クラスタには適用しない。
 ルートは Ingress で管理し、KIC が Kong へ反映する。
-専用 Namespace `hello-apps` / `sas47-kong` を作成する。
+専用 Namespace `test` / `sas47-kong` を作成する。
 同名で所有ラベルのない Namespace があれば停止する。
 これらの Namespace に他のワークロードを追加しないこと。
 

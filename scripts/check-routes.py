@@ -39,7 +39,7 @@ def main():
         parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
     cases = [
         ("standard", standard_domain, "standard-service"),
-        ("knative", "hello-apps-serverless." + knative_domain, "knative-service"),
+        ("knative", "test-hello." + knative_domain, "knative-service"),
     ]
     command = shlex.split(args.kubectl)
     if not command:
@@ -89,8 +89,8 @@ def main():
             if remaining <= 0:
                 raise RuntimeError("Pod がゼロになりませんでした" if zero else "復帰後の Ready Pod を確認できませんでした")
             result = subprocess.run(
-                kubectl + ["--request-timeout=10s", "-n", "hello-apps", "get", "pods",
-                           "-l", "serving.knative.dev/service=serverless", "-o", "json"],
+                kubectl + ["--request-timeout=10s", "-n", "test", "get", "pods",
+                           "-l", "serving.knative.dev/service=hello", "-o", "json"],
                 stdout=subprocess.PIPE, text=True, check=True, timeout=min(15, remaining),
             )
             pods = json.loads(result.stdout)["items"]

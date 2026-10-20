@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: standard
-  namespace: hello-apps
+  namespace: test
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
@@ -24,7 +24,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kourier-proxy
-  namespace: hello-apps
+  namespace: test
   annotations:
     konghq.com/connect-timeout: "10000"
     konghq.com/read-timeout: "180000"
@@ -39,8 +39,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: serverless
-  namespace: hello-apps
+  name: hello
+  namespace: test
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"

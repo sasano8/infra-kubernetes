@@ -107,7 +107,8 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 )
 ```
 
-下の「HTTPS で公開」の DNS・EC2 設定を済ませてから、検証・インストールする。
+[DNS・EC2 の準備](docs/https.md#1-dns-と-ec2-の準備)を済ませてから、検証・インストールする。
+DNS は **DNS only** で EC2 のパブリック IP に向け、セキュリティグループで443/TCPを許可する。
 
 ```bash
 sudo ./bin/infra validate --require-https
@@ -126,6 +127,10 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 ## 動作確認
 
+### 内部から：経路・スケールゼロ復帰
+
+EC2 上で実行する。外部 DNS・公開443番・証明書の確認は含まない。
+
 ```bash
 sudo python3 scripts/check-routes.py
 ```
@@ -139,30 +144,19 @@ port-forward を自動で起動し、次を確認する。
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
 待機中は別のアクセスを止める。すべて成功すると `3/3 成功` と表示する。
 
-## HTTPS で公開（Cloudflare DNS-01）
+### 外部から：DNS・HTTPS・両経路
 
-Caddy と同じ方式で、cert-manager が証明書を自動発行・更新し、KIC が Kong に反映する。
-Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック IP へ向ける。
-通常・Knative の両ドメインと、それぞれの `*.` の証明書を発行する。
-公開するホスト・パスは別途 Ingress で指定し、KIC が Kong に動的に反映する。
+手元の PC など、EC2 の外部から実行する。証明書も検証するため `-k` は付けない。
 
+```bash
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+```
 
+それぞれ `standard-service` / `knative-service` が返れば成功。
+内部確認のゼロスケール待機が終わってから実行する。
 
-1. 上記の `tls` 設定と [Cloudflare API トークンの配置](docs/https.md#2-cloudflare-api-トークンを配置)を済ませる。
-2. `standard.tmp.ys-method-dev.com`、`*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
-   `knative.tmp.ys-method-dev.com` の A レコードを登録し、EC2 の443/TCPを許可する。
-3. 構築・更新して確認する。
-
-   ```bash
-   sudo ./bin/infra validate --require-https
-   sudo ./bin/infra up --require-https
-   curl --fail-with-body https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
-   curl --fail-with-body https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
-   ```
-
-DNS-01 のため証明書発行用に80番を開ける必要はない。
-既存 Caddy が443番を使用していれば自動停止せずエラーにする。
-[Cloudflare API の取得・設定手順](docs/cloudflare.md) / [証明書・更新の詳細](docs/https.md)
+HTTPS 公開の設定・証明書の発行と更新・診断は [HTTPS の詳細手順](docs/https.md)を参照。
 
 ## 詳細
 

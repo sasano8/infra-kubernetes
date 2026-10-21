@@ -1,13 +1,13 @@
 # infra-kubernetes
 
-EC2 上に k0s・Kong・Knative を構築し、通常 Service と Knative の2経路を確認する。
+Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の2経路を確認する。
 Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
 ```mermaid
 flowchart LR
     Internet[インターネット]
-    subgraph EC2[自分で管理する EC2]
-        HTTP[VM 内での HTTP 確認]
+    subgraph Host[自分で管理する Kong ホスト]
+        HTTP[ホスト内での HTTP 確認]
         subgraph Kubernetes[Kubernetes クラスタ / k0s]
             Kong[Kong / HTTPS 終端]
             Service[通常の Kubernetes Service]
@@ -33,7 +33,7 @@ Kong の Namespace は `kong-system`、アプリは `test`。
 
 ```mermaid
 flowchart LR
-    subgraph Managed[自分で管理する EC2 / Kubernetes クラスタ]
+    subgraph Managed[自分で管理する Kong ホスト / Kubernetes クラスタ]
         CM[cert-manager]
         Secret[TLS Secret]
         KIC[KIC]
@@ -52,9 +52,22 @@ flowchart LR
     LE -->|証明書を発行| CM
 ```
 
+## 用語と実行場所
+
+| 用語 | この構成での役割 |
+| --- | --- |
+| Kong ホスト | k0s と Kong を動かす Linux マシン。インストールと内部確認の実行場所 |
+| Kubernetes / k0s | 各コンポーネントとアプリを動かす基盤 / その配布版 |
+| Kong / KIC | HTTPS の入口と転送処理 / Ingress の設定を Kong に反映するコントローラ |
+| 通常 Service / Deployment | アプリへの接続先 / アプリの Pod を維持する仕組み |
+| Knative / Kourier | リクエストに応じて Pod を起動し、スケールゼロも行う基盤 / Knative への入口 |
+| cert-manager / TLS Secret | 証明書の取得・自動更新 / 証明書と秘密鍵の保存先 |
+| Cloudflare / Let's Encrypt | DNS-01 認証用の DNS を管理 / 証明書を発行する外部サービス |
+| 外部端末 | 手元の PC など、公開 DNS・HTTPS を使って Kong に接続する別のマシン |
+
 ## インストール
 
-`dnf` が使える新規の専用 EC2 を使用する。
+Kong ホストで実行する。以下は `dnf` が使える新規の専用 Linux ホスト向けの手順。
 Python 3.10 以上・curl・CA 証明書・sudo・systemd が必要。
 
 ```bash
@@ -107,8 +120,9 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 )
 ```
 
-[DNS・EC2 の準備](docs/https.md#1-dns-と-ec2-の準備)を済ませてから、検証・インストールする。
-DNS は **DNS only** で EC2 のパブリック IP に向け、セキュリティグループで443/TCPを許可する。
+[DNS・公開ポートの準備](docs/https.md#1-dns-と-ec2-の準備)を済ませてから、検証・インストールする。
+DNS は **DNS only** で Kong ホストに到達する公開 IP に向け、ファイアウォールで443/TCPを許可する。
+クラウド環境ではセキュリティグループなどの受信ルールも設定する。
 
 ```bash
 sudo ./bin/infra validate --require-https
@@ -127,9 +141,9 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 ## 動作確認
 
-### 内部から：経路・スケールゼロ復帰
+### Kong ホスト上：経路・スケールゼロ復帰
 
-EC2 上で実行する。外部 DNS・公開443番・証明書の確認は含まない。
+Kong ホスト上で実行する。外部 DNS・公開443番・証明書の確認は含まない。
 
 ```bash
 sudo python3 scripts/check-routes.py
@@ -144,9 +158,9 @@ port-forward を自動で起動し、次を確認する。
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
 待機中は別のアクセスを止める。すべて成功すると `3/3 成功` と表示する。
 
-### 外部から：DNS・HTTPS・両経路
+### 外部端末から：DNS・HTTPS・両経路
 
-手元の PC など、EC2 の外部から実行する。証明書も検証するため `-k` は付けない。
+手元の PC など、Kong ホスト以外の外部端末から実行する。証明書も検証するため `-k` は付けない。
 
 ```bash
 curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/

@@ -3,6 +3,8 @@
 Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の2経路を確認する。
 Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
+## ルーティング
+
 ```mermaid
 flowchart LR
     Internet[インターネット]
@@ -25,11 +27,13 @@ Ingress はホスト・パスと転送先を定義し、KIC が Kong に反映�
 通信を中継するコンポーネントではないため、上図には含めていない。
 現在は Ingress を使用し、Gateway API の HTTPRoute は使用していない。
 Kong の Namespace は `kong-system`、アプリは `test`。
-証明書用 Secret は `cloudflare-api-token`、Issuer は `cloudflare-letsencrypt` を使う。
 
-### HTTPS と証明書（Cloudflare DNS-01）
+## HTTPS と証明書（Cloudflare DNS-01）
 
 証明書の発行元は **Let's Encrypt**。Cloudflare は DNS-01 認証用の DNS を管理する。
+Cloudflare API トークンは `test/cloudflare-api-token` Secret に保存し、
+`test/cloudflare-letsencrypt` Issuer が参照する。
+証明書と秘密鍵は `test/standard-tls` と `test/knative-wildcard-tls` の TLS Secret に保存する。
 
 ```mermaid
 flowchart LR

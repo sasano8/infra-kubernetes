@@ -17,6 +17,20 @@ Ingress はホスト・パスと転送先を定義し、KIC が Kong に反映�
 Kong の Namespace は `kong-system`、アプリは `test`。
 証明書用 Secret は `cloudflare-api-token`、Issuer は `cloudflare-letsencrypt` を使う。
 
+### HTTPS と証明書（Cloudflare DNS-01）
+
+証明書の発行元は **Let's Encrypt**。Cloudflare は DNS-01 認証用の DNS を管理する。
+
+```mermaid
+flowchart LR
+    CM[cert-manager] -->|API で認証用 TXT を作成・削除| CF[Cloudflare DNS]
+    CM -->|証明書を申請・更新| LE[Let's Encrypt]
+    LE -->|DNS-01 認証の TXT を確認| CF
+    LE -->|証明書を発行| CM
+    CM -->|証明書・秘密鍵を保存| Secret[TLS Secret]
+    Secret -->|KIC が読み取り・反映| Kong[Kong / HTTPS 終端]
+```
+
 ## インストール
 
 `dnf` が使える新規の専用 EC2 を使用する。
@@ -94,17 +108,7 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
 通常・Knative の両ドメインと、それぞれの `*.` の証明書を発行する。
 公開するホスト・パスは別途 Ingress で指定し、KIC が Kong に動的に反映する。
 
-証明書の発行元は **Let's Encrypt**。Cloudflare は DNS-01 認証用の DNS を管理する。
 
-```mermaid
-flowchart LR
-    CM[cert-manager] -->|API で認証用 TXT を作成・削除| CF[Cloudflare DNS]
-    CM -->|証明書を申請・更新| LE[Let's Encrypt]
-    LE -->|DNS-01 認証の TXT を確認| CF
-    LE -->|証明書を発行| CM
-    CM -->|証明書・秘密鍵を保存| Secret[TLS Secret]
-    Secret -->|KIC が読み取り・反映| Kong[Kong / HTTPS 終端]
-```
 
 1. 上記の `tls` 設定と [Cloudflare API トークンの配置](docs/https.md#2-cloudflare-api-トークンを配置)を済ませる。
 2. `standard.tmp.ys-method-dev.com`、`*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、

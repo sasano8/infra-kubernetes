@@ -5,10 +5,20 @@ Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反�
 
 ```mermaid
 flowchart LR
-    HTTP[HTTP リクエスト] -->|VM 内での確認| Kong
-    Internet[インターネット] -->|HTTPS :443 / DNS only| Kong
-    Kong --> Service[通常の Kubernetes Service]
-    Kong --> Kourier --> Knative[Knative Service]
+    Internet[インターネット]
+    subgraph EC2[自分で管理する EC2]
+        HTTP[VM 内での HTTP 確認]
+        subgraph Kubernetes[Kubernetes クラスタ / k0s]
+            Kong[Kong / HTTPS 終端]
+            Service[通常の Kubernetes Service]
+            Kourier[Kourier]
+            Knative[Knative Service]
+            Kong --> Service
+            Kong --> Kourier --> Knative
+        end
+        HTTP -->|port-forward| Kong
+    end
+    Internet -->|HTTPS :443 / DNS only| Kong
 ```
 
 Ingress はホスト・パスと転送先を定義し、KIC が Kong に反映する設定リソース。
@@ -23,12 +33,23 @@ Kong の Namespace は `kong-system`、アプリは `test`。
 
 ```mermaid
 flowchart LR
-    CM[cert-manager] -->|API で認証用 TXT を作成・削除| CF[Cloudflare DNS]
-    CM -->|証明書を申請・更新| LE[Let's Encrypt]
-    LE -->|DNS-01 認証の TXT を確認| CF
+    subgraph Managed[自分で管理する EC2 / Kubernetes クラスタ]
+        CM[cert-manager]
+        Secret[TLS Secret]
+        KIC[KIC]
+        Kong[Kong / HTTPS 終端]
+        CM -->|証明書・秘密鍵を保存| Secret
+        Secret -->|読み取り| KIC
+        KIC -->|証明書を反映| Kong
+    end
+    subgraph External[外部サービス]
+        CF[Cloudflare DNS]
+        LE[Let's Encrypt]
+        LE -->|DNS-01 認証の TXT を確認| CF
+    end
+    CM -->|API で認証用 TXT を作成・削除| CF
+    CM -->|証明書を申請・更新| LE
     LE -->|証明書を発行| CM
-    CM -->|証明書・秘密鍵を保存| Secret[TLS Secret]
-    Secret -->|KIC が読み取り・反映| Kong[Kong / HTTPS 終端]
 ```
 
 ## インストール

@@ -28,7 +28,7 @@ git clone https://github.com/sasano8/infra-kubernetes.git
 cd infra-kubernetes
 ```
 
-設定ファイルを配置する。
+HTTPS 公開用の設定ファイルを配置する。`email` は受信できる自分のメールアドレスに変更する。
 
 ```bash
 cat > configs/environment/local.json <<'EOF'
@@ -38,17 +38,29 @@ cat > configs/environment/local.json <<'EOF'
   "knative_domain": "knative.tmp.ys-method-dev.com",
   "standard_domain": "standard.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
-  "node_port": null
+  "node_port": null,
+  "tls": {
+    "enabled": true,
+    "email": "you@example.com",
+    "cloudflare_zone": "ys-method-dev.com",
+    "host_https_port": 443
+  }
 }
 EOF
-
-sudo ./bin/infra up
 ```
 
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
 `standard_domain` は通常経路のベースドメインとして個別指定する。
 
-設定だけを確認する場合は `sudo ./bin/infra validate`。
+構築前に [Cloudflare API トークンを配置](docs/https.md#2-cloudflare-api-トークンを配置)し、
+下の「HTTPS で公開」の DNS・EC2 設定を済ませる。
+
+```bash
+sudo ./bin/infra validate --require-https
+sudo ./bin/infra up --require-https
+```
+
+設定だけを確認する場合は `sudo ./bin/infra validate --require-https`。
 `up` も開始時に設定と必要なトークンを検証し、不足していれば構築前に停止する。
 
 Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の順に揃える。
@@ -80,21 +92,10 @@ Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック
 通常・Knative の両ドメインと、それぞれの `*.` の証明書を発行する。
 公開するホスト・パスは別途 Ingress で指定し、KIC が Kong に動的に反映する。
 
-1. [トークン配置手順](docs/https.md#2-cloudflare-api-トークンを配置)で Cloudflare の API トークンを保存する。
-2. `local.json` に次の `tls` 設定を追加する。メールアドレスは自分のものに変更する。
-
-   ```json
-   "tls": {
-     "enabled": true,
-     "email": "you@example.com",
-     "cloudflare_zone": "ys-method-dev.com",
-     "host_https_port": 443
-   }
-   ```
-
-3. `*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
+1. 上記の `tls` 設定と [Cloudflare API トークンの配置](docs/https.md#2-cloudflare-api-トークンを配置)を済ませる。
+2. `standard.tmp.ys-method-dev.com`、`*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、
    `knative.tmp.ys-method-dev.com` の A レコードを登録し、EC2 の443/TCPを許可する。
-4. 構築・更新して確認する。
+3. 構築・更新して確認する。
 
    ```bash
    sudo ./bin/infra validate --require-https

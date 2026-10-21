@@ -11,7 +11,9 @@ flowchart LR
     Kong --> Kourier --> Knative[Knative Service]
 ```
 
-KIC は経路設定を管理するため、リクエストの経路図には含めていない。
+Ingress はホスト・パスと転送先を定義し、KIC が Kong に反映する設定リソース。
+通信を中継するコンポーネントではないため、上図には含めていない。
+現在は Ingress を使用し、Gateway API の HTTPRoute は使用していない。
 Kong の Namespace は `kong-system`、アプリは `test`。
 証明書用 Secret は `cloudflare-api-token`、Issuer は `cloudflare-letsencrypt` を使う。
 
@@ -91,6 +93,18 @@ Caddy と同じ方式で、cert-manager が証明書を自動発行・更新し�
 Cloudflare Tunnel は使わず、DNS は **DNS only** で EC2 のパブリック IP へ向ける。
 通常・Knative の両ドメインと、それぞれの `*.` の証明書を発行する。
 公開するホスト・パスは別途 Ingress で指定し、KIC が Kong に動的に反映する。
+
+証明書の発行元は **Let's Encrypt**。Cloudflare は DNS-01 認証用の DNS を管理する。
+
+```mermaid
+flowchart LR
+    CM[cert-manager] -->|API で認証用 TXT を作成・削除| CF[Cloudflare DNS]
+    CM -->|証明書を申請・更新| LE[Let's Encrypt]
+    LE -->|DNS-01 認証の TXT を確認| CF
+    LE -->|証明書を発行| CM
+    CM -->|証明書・秘密鍵を保存| Secret[TLS Secret]
+    Secret -->|KIC が読み取り・反映| Kong[Kong / HTTPS 終端]
+```
 
 1. 上記の `tls` 設定と [Cloudflare API トークンの配置](docs/https.md#2-cloudflare-api-トークンを配置)を済ませる。
 2. `standard.tmp.ys-method-dev.com`、`*.standard.tmp.ys-method-dev.com` と `*.knative.tmp.ys-method-dev.com`、

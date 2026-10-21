@@ -89,8 +89,25 @@ EOF
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
 `standard_domain` は通常経路のベースドメインとして個別指定する。
 
-構築前に [Cloudflare API トークンを配置](docs/https.md#2-cloudflare-api-トークンを配置)し、
-下の「HTTPS で公開」の DNS・EC2 設定を済ませる。
+続いて Cloudflare API トークンを配置する。
+[トークンの取得手順](docs/https.md#2-cloudflare-api-トークンを配置)で作成し、
+リポジトリのルートで以下を実行して貼り付ける（入力は画面に表示されない）。
+
+```bash
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
+sudo touch .local/secrets/cloudflare-api-token
+sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
+sudo chmod 600 .local/secrets/cloudflare-api-token
+(
+  umask 077
+  read -r -s -p 'Cloudflare API token: ' cf_api_token
+  printf '\n'
+  printf '%s' "$cf_api_token" > .local/secrets/cloudflare-api-token
+  unset cf_api_token
+)
+```
+
+下の「HTTPS で公開」の DNS・EC2 設定を済ませてから、検証・インストールする。
 
 ```bash
 sudo ./bin/infra validate --require-https

@@ -10,9 +10,9 @@ Docker は不要で、コンテナ実行には k0s 内蔵 containerd を使う�
 ```text
 HTTP + Host → Kong (DB-less)
                 ├─ standard.example.test
-                │    └─ Service → Deployment → "standard-service"
+                │    └─ Service → Deployment → go-httpbin /get
                 └─ hello-test-ksvc.example.test
-                     └─ Kourier → Knative → "knative-service"
+                     └─ Kourier → Knative → go-httpbin /get
 ```
 
 Kong の `preserve_host: true` と Knative の
@@ -145,12 +145,12 @@ sudo python3 scripts/check-routes.py
 設定ファイルを読み、自動で Kong の port-forward を起動して、次の3項目を確認する。
 
 1. **通常 Service の経路**: Kong → Kubernetes Service → Deployment にアクセスし、
-   HTTP 200 と本文 `standard-service` を確認する。
+   HTTP 200 と本文 go-httpbin JSON の通常 Service 側 Host を確認する。
 2. **Knative の経路**: Kong → Kourier → Knative Service にアクセスし、
-   HTTP 200 と本文 `knative-service` を確認する。
+   HTTP 200 と本文 go-httpbin JSON の Knative 側 Host を確認する。
 3. **スケールゼロからの復帰**: Knative へのアクセスを止め、検証用 Knative Service の
    Pod が0件になるまで待つ。その後、同じ Kong 入口に再アクセスし、
-   HTTP 200・本文 `knative-service`・Ready Pod の再生成を確認する。
+   HTTP 200・本文 go-httpbin JSON の Knative 側 Host・Ready Pod の再生成を確認する。
 
 3の待機時間は、最後のアクセスから通常1〜2分程度を目安にする。
 この構成の autoscaling window は30秒だが、スケールゼロの猶予期間や

@@ -10,6 +10,24 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
+
+
+
+def validate_response(status, body, host):
+    """Reject stale echo apps, error pages, and rewritten Hosts."""
+    if status != 200 or len(body) > 65536:
+        raise RuntimeError("expected HTTP 200 and bounded go-httpbin JSON")
+    payload = json.loads(body)
+    if not isinstance(payload, dict) or not isinstance(payload.get("headers"), dict):
+        raise RuntimeError("expected go-httpbin JSON object with headers")
+    headers = {key.lower(): value for key, value in payload["headers"].items()}
+    url = payload.get("url")
+    if not isinstance(url, str):
+        raise RuntimeError("expected go-httpbin URL")
+    parsed = urlsplit(url)
+    if headers.get("host") != [host] or parsed.netloc != host or parsed.path != "/get":
+        raise RuntimeError("go-httpbin JSON does not preserve the requested Host and path")
 
 
 def main():
@@ -38,8 +56,8 @@ def main():
     if not isinstance(standard_domain, str) or not standard_domain:
         parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
     cases = [
-        ("standard", "hello-test-ssvc." + standard_domain, "standard-service"),
-        ("knative", "hello-test-ksvc." + knative_domain, "knative-service"),
+        ("standard", "hello-test-ssvc." + standard_domain),
+        ("knative", "hello-test-ksvc." + knative_domain),
     ]
     command = shlex.split(args.kubectl)
     if not command:
@@ -61,21 +79,20 @@ def main():
     reader = threading.Thread(target=log_output, daemon=True)
     reader.start()
 
-    def request(name, host, expected):
+    def request(name, host):
         connection = http.client.HTTPConnection("127.0.0.1", args.port, timeout=args.timeout)
-        print(f"\n[{name}] GET / Host: {host}", flush=True)
+        print(f"\n[{name}] GET /get Host: {host}", flush=True)
         try:
             if process.poll() is not None:
                 raise RuntimeError("port-forward has stopped")
-            connection.request("GET", "/", headers={"Host": host})
+            connection.request("GET", "/get", headers={"Host": host})
             response = connection.getresponse()
             body = response.read(65537)
             print(f"HTTP {response.status}")
             for key, value in response.getheaders():
                 print(f"{key}: {value}")
             print("\n" + body.decode("utf-8", errors="replace"))
-            if response.status != 200 or body.strip() != expected.encode():
-                raise RuntimeError(f"expected HTTP 200 and body {expected!r}")
+            validate_response(response.status, body, host)
         finally:
             connection.close()
 
@@ -117,26 +134,26 @@ def main():
                 raise RuntimeError("port-forward startup timed out after 30 seconds")
         passed = 0
         knative_ok = False
-        for name, host, expected in cases:
+        for name, host in cases:
             try:
-                request(name, host, expected)
+                request(name, host)
                 passed += 1
                 if name == "knative":
                     knative_ok = True
                 print(f"PASS: {name}", flush=True)
-            except (OSError, http.client.HTTPException, RuntimeError) as exc:
+            except (OSError, ValueError, http.client.HTTPException, RuntimeError) as exc:
                 print(f"FAIL: {name}: {exc}", flush=True)
         if knative_ok:
             try:
                 print("\n[scale-zero] テスト内容: Knative の Pod が0件になった後、同じ Kong 入口へ"
-                      "再アクセスし、HTTP 200・本文 knative-service・Ready Pod の再生成を確認します。",
+                      "再アクセスし、HTTP 200・go-httpbin JSON の Host・Ready Pod の再生成を確認します。",
                       flush=True)
                 print("\n[scale-zero] Pod がゼロ件になるまで待機します（目安: 最後のアクセスから1〜2分程度、"
                       f"最大 {args.scale_zero_timeout} 秒）。"
                       "Knative への別のアクセスも停止してください。", flush=True)
                 wait_for_pods(zero=True, timeout=args.scale_zero_timeout)
                 # No HTTP requests are sent during the zero-Pod wait above.
-                request("knative-cold-start", cases[1][1], cases[1][2])
+                request("knative-cold-start", cases[1][1])
                 wait_for_pods(zero=False, timeout=args.timeout)
                 passed += 1
                 print("PASS: scale-zero-recovery", flush=True)

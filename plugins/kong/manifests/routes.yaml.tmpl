@@ -6,6 +6,8 @@ metadata:
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
+    konghq.com/request-buffering: "false"
+    konghq.com/response-buffering: "false"
 spec:
   ingressClassName: kong-ingress
 $standard_tls
@@ -44,6 +46,8 @@ metadata:
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
+    konghq.com/request-buffering: "false"
+    konghq.com/response-buffering: "false"
 spec:
   ingressClassName: kong-ingress
 $knative_tls

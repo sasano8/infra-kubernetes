@@ -14,12 +14,16 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: http
-          image: hashicorp/http-echo:1.0.0
-          args: ["-listen=:8080", "-text=standard-service"]
+          image: ghcr.io/mccutchen/go-httpbin:2.21.0
+          env:
+            - {name: PORT, value: "8080"}
+            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_DURATION, value: "60s"}
+            - {name: SRV_READ_TIMEOUT, value: "120s"}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
-            httpGet: {path: /, port: http}
+            httpGet: {path: /get, port: http}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {cpu: 100m, memory: 64Mi}
@@ -34,6 +38,10 @@ kind: Service
 metadata:
   name: hello-ssvc
   namespace: test
+  annotations:
+    konghq.com/read-timeout: "180000"
+    konghq.com/write-timeout: "180000"
+    konghq.com/retries: "0"
 spec:
   selector: {app: hello-ssvc}
   ports:
@@ -59,8 +67,12 @@ spec:
       timeoutSeconds: 120
       containers:
         - name: http
-          image: hashicorp/http-echo:1.0.0
-          args: ["-listen=:8080", "-text=knative-service"]
+          image: ghcr.io/mccutchen/go-httpbin:2.21.0
+          env:
+            - {name: PORT, value: "8080"}
+            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_DURATION, value: "60s"}
+            - {name: SRV_READ_TIMEOUT, value: "120s"}
           ports:
             - {containerPort: 8080}
           resources:

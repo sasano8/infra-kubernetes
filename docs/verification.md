@@ -1,9 +1,10 @@
 # SAS-47 手動確認
 
-VM で実施する手順。ユーザーの AWS VM で2経路の HTTP 200・期待する本文を確認済み。
-手動で Pod が0件になった後の再アクセスも HTTP 200 が報告されている。
-スケールゼロ復帰を追加した版のスクリプトは、VM 上での実行結果待ち。
-インストール時の Ready 待ちだけでは2経路やスケールゼロ復帰の検証にならない。
+VM で実施する手順。旧 http-echo 版では、ユーザーの AWS VM で2経路の HTTP 200と
+手動のスケールゼロ復帰が報告されている。以下は go-httpbin 版の手順であり、
+この版の実クラスタ・外部 HTTPS・スケールゼロ復帰・非バッファリングは未検証。
+旧版の成功報告を本版の取得証跡として扱わない。
+インストール時の Ready 待ちだけでは経路やスケールゼロ復帰の検証にならない。
 
 新規 k0s とデフォルト設定を例にする。既存クラスタでは関数 `k()` の中身を
 `kubectl "$@"` に置き換える。Bash、curl、Python 3 を使用する。
@@ -22,13 +23,13 @@ sudo python3 scripts/check-routes.py
 `configs/environment/local.json` のドメイン設定を読み、Kong の port-forward を
 127.0.0.1:18080 で起動する。ログは別スレッドで読み取り、転送開始を待ってから
 両経路の HTTP ステータスと本文を検証する。
-両方が200で、本文がそれぞれ `standard-service` / `knative-service` なら成功。
+両方が200で、本文がそれぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） なら成功。
 どちらかが失敗したら終了コード1。終了・失敗・Ctrl-C 時には自身が起動した
 port-forward を停止する。既存の8080番の port-forward は停止しない。
 続いて「Pod がゼロ件になるまで待機します」と表示し、5秒間隔で Pod 数を取得する。
 Terminating / Error の Pod も残っている間はゼロと扱わない。
 待機中は Knative に HTTP リクエストを送らず、Pod が0件になった後、同じ Kong 入口へ
-リクエストして HTTP 200・`knative-service` と Ready Pod の再生成を確認する。
+リクエストして HTTP 200・go-httpbin JSON の Knative 側 Host と Ready Pod の再生成を確認する。
 待機時間の目安は最後のアクセスから通常1〜2分程度。
 autoscaling window の30秒に加え、スケールゼロの猶予期間や Pod の終了処理があるため前後する。
 すべて成功すれば `3/3 成功`。待機上限は既定600秒で、API エラーや期限切れは失敗とする。
@@ -70,22 +71,22 @@ KNATIVE_HOST=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); prin
 BASE=http://127.0.0.1:8080
 
 curl --fail-with-body --silent --show-error --max-time 180 \
-  -D .local/results/standard.headers -H "Host: $STANDARD_HOST" "$BASE/" \
+  -D .local/results/standard.headers -H "Host: $STANDARD_HOST" "$BASE/get" \
   -o .local/results/standard.body
 cat .local/results/standard.body
-# 期待: HTTP 200 / standard-service
+# 期待: HTTP 200 / JSON の headers.Host が STANDARD_HOST
 
 curl --fail-with-body --silent --show-error --max-time 180 \
-  -D .local/results/knative.headers -H "Host: $KNATIVE_HOST" "$BASE/" \
+  -D .local/results/knative.headers -H "Host: $KNATIVE_HOST" "$BASE/get" \
   -o .local/results/knative.body
 cat .local/results/knative.body
-# 期待: HTTP 200 / knative-service
+# 期待: HTTP 200 / JSON の headers.Host が KNATIVE_HOST
 
 k -n test get ksvc hello -o yaml > .local/results/knative-service.yaml
 k -n kong-system logs deployment/kong -c kong --tail=100 > .local/results/kong.log
 ```
 
-HTTP が両方200で、本文が別々の期待値であることを確認する。
+HTTP が両方200で、JSON の `headers.Host` がそれぞれの公開ホストと一致することを確認する。
 Knative の `status.url` は `http://$KNATIVE_HOST` と一致すること。
 Kong の access log に両リクエストが記録される。
 Kong に送る Host と、Kourier が期待する Knative URL の Host は同一にする。
@@ -120,17 +121,17 @@ k -n test get deployments -l serving.knative.dev/service=hello \
 
 # 同じ Kong 入口にリクエストして復帰させる。
 curl --fail-with-body --silent --show-error --max-time 180 \
-  -D .local/results/cold-start.headers -H "Host: $KNATIVE_HOST" "$BASE/" \
+  -D .local/results/cold-start.headers -H "Host: $KNATIVE_HOST" "$BASE/get" \
   -o .local/results/cold-start.body
 cat .local/results/cold-start.body
-# 期待: HTTP 200 / knative-service
+# 期待: HTTP 200 / JSON の headers.Host が KNATIVE_HOST
 k -n test get pods -l serving.knative.dev/service=hello \
   -o json > .local/results/recovered-pods.json
 date -u +%FT%TZ > .local/results/recovered-at.txt
 ```
 
 ゼロ時点の Pod が0件、Revision Deployment の replicas が0、復帰後が200で
-本文が `knative-service`、Pod が再生成されていることを確認する。
+本文が go-httpbin JSON の Knative 側 Host、Pod が再生成されていることを確認する。
 ゼロになる前のリクエストは復帰確認の成功に数えない。
 
 ## 問題の切り分け
@@ -171,3 +172,5 @@ k -n knative-serving get cm config-network config-domain config-autoscaler -o ya
 
 設定、バージョン、実行コミットも添付する。
 既存クラスタの証跡に機密情報が含まれないか確認してから共有する。
+
+大容量転送・逐次レスポンスは [ストリーミング検証](streaming.md)を参照。

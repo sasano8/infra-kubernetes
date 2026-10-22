@@ -178,11 +178,11 @@ hostPort 使用時は Kong を Recreate で更新するため、更新中に一�
 外部端末から、証明書を検証したままアクセスする。`-k` は使用しない。
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
 ```
 
-期待する本文は `standard-service` / `knative-service`。
+期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
 ローカルの HTTP とスケールゼロ復帰は従来どおり確認できる。
 
 ```bash

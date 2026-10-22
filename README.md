@@ -155,8 +155,8 @@ sudo python3 scripts/check-routes.py
 
 port-forward を自動で起動し、次を確認する。
 
-- Kong → 通常 Service：HTTP 200・`standard-service`
-- Kong → Kourier → Knative：HTTP 200・`knative-service`
+- Kong → 通常 Service：HTTP 200・go-httpbin JSON の通常 Service 側 Host
+- Kong → Kourier → Knative：HTTP 200・go-httpbin JSON の Knative 側 Host
 - Knative の Pod が0件になるまで待ち、再アクセスによる復帰を確認
 
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
@@ -167,11 +167,11 @@ port-forward を自動で起動し、次を確認する。
 手元の PC など、Kong ホスト以外の外部端末から実行する。証明書も検証するため `-k` は付けない。
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
 ```
 
-それぞれ `standard-service` / `knative-service` が返れば成功。
+それぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） が返れば成功。
 内部確認のゼロスケール待機が終わってから実行する。
 
 HTTPS 公開の設定・証明書の発行と更新・診断は [HTTPS の詳細手順](docs/https.md)を参照。
@@ -194,3 +194,11 @@ sudo python3 scripts/prune-resources.py apply
 - [webhook のトラブルシューティング](docs/webhook-diagnostics.md)
 - [撤去](docs/cleanup.md)
 - [infra-k0s との対応](docs/migration.md)
+
+### 疎通・ストリーミング用アプリ
+
+通常 Service と Knative の hello は、同じ `ghcr.io/mccutchen/go-httpbin:2.21.0` を使用する。
+リソース名・公開 URL は維持し、`/get` で疎通と Host 保持を確認する。
+両サンプルの Kong Ingress は request／response buffering を無効化している。
+`/headers`、`/drip`、`/stream-bytes`、`/upload` の確認方法は
+[ストリーミング検証](docs/streaming.md)を参照。アプリ別設定の自動反映は SAS-68 の別課題。

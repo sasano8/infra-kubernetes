@@ -82,12 +82,12 @@ sudo ./bin/infra up --require-https
 ## 5. 確認
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
 sudo python3 scripts/check-routes.py
 ```
 
-期待する本文は `standard-service` / `knative-service`。
+期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
 確認スクリプトは VM 内の HTTP 2経路とスケールゼロ復帰を確認する。
 外部 HTTPS は上記の curl で証明書を検証したまま確認する。
 

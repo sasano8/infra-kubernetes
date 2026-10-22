@@ -15,10 +15,10 @@ DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {
 
 
 def normalize(c, routes):
-    c["_sso_explicit"] = "sso" in c
     supplied = c.get("sso", {})
     if not isinstance(supplied, dict) or set(supplied) - set(DEFAULTS):
         raise ValueError("sso に未対応の設定があります")
+    c["_sso_explicit"] = "enabled" in supplied
     s = dict(DEFAULTS, **supplied)
     if type(s["enabled"]) is not bool:
         raise ValueError("sso.enabled は true / false")
@@ -222,8 +222,10 @@ def test_plan(c, format):
              if format == "shell" else ["# 外部確認プラン", "", "別ネットワークで実施。未認証・認証済み・内部診断を別々に記録する。", ""])
     for host, route in zip(hosts(c), ids):
         mode = c["sso"]["routes"].get(route, "browser") if c["sso"]["enabled"] else "public"
-        expected = "200" if mode == "public" else "401" if mode == "api" else "302"
-        url = scheme + "://" + host + suffix + "/get"
+        path = "/get"
+        api_request = mode == "api" or any(path == prefix or path.startswith(prefix + "/") for prefix in c["sso"]["api_paths"])
+        expected = "200" if mode == "public" else "401" if api_request else "302"
+        url = scheme + "://" + host + suffix + path
         curl = ["curl", "--silent", "--show-error", "--max-time", "180", "--output", "/dev/null", "--write-out", "%{http_code}", url]
         if format == "shell":
             lines += ["# " + route + " / " + mode,

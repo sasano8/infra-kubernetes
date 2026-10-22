@@ -21,6 +21,11 @@ function Handler:access(conf)
   kong.service.request.set_header("X-Forwarded-Proto", "https")
   kong.service.request.set_header("X-Forwarded-Host", authority)
   kong.service.request.set_header("X-Forwarded-Port", tostring(conf.https_port))
+  -- Kong 3.9.1's Nginx template builds the actual proxy headers from these
+  -- variables; service.request.set_header alone does not replace their values.
+  ngx.var.upstream_x_forwarded_proto = "https"
+  ngx.var.upstream_x_forwarded_host = authority
+  ngx.var.upstream_x_forwarded_port = tostring(conf.https_port)
   if conf.mode == "oauth" then
     local path = kong.request.get_path()
     local public = { ["/oauth2/start"]=true, ["/oauth2/callback"]=true,
@@ -79,7 +84,8 @@ function Handler:header_filter(conf)
   local cookies = kong.ctx.plugin.cookies
   if cookies then
     local merged = {}
-    local existing = kong.response.get_header("Set-Cookie")
+    -- get_header returns only the first cookie; get_headers preserves them all.
+    local existing = kong.response.get_headers()["set-cookie"]
     local function append(value)
       if type(value) == "table" then for _, cookie in ipairs(value) do merged[#merged+1] = cookie end
       elseif value then merged[#merged+1] = value end

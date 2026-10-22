@@ -2,6 +2,7 @@
 import base64
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -129,10 +130,17 @@ class SSOTests(unittest.TestCase):
         self.assertTrue(any(x['kind']=='KongPlugin' and x['name']=='sso-oauth-endpoints' for x in identities))
         self.assertTrue(any(x['kind']=='NetworkPolicy' for x in identities))
 
-    @unittest.skipUnless(shutil.which('texlua'),'Lua runtime unavailable')
     def test_actual_lua_handler(self):
-        result=subprocess.run(['texlua','tests/session_auth.lua'],cwd=ROOT,text=True,capture_output=True,check=True)
-        self.assertIn('20 passed',result.stdout)
+        runtime = next((path for name in ('lua5.1', 'luajit', 'lua', 'texlua')
+                        if (path := shutil.which(name))), None)
+        if runtime is None:
+            if os.environ.get('REQUIRE_LUA_TESTS') == '1':
+                self.fail('Lua runtime required: install lua5.1, luajit, lua, or texlua')
+            self.skipTest('Lua runtime unavailable')
+        result = subprocess.run([runtime, 'tests/session_auth.lua'], cwd=ROOT,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r'(?m)^Lua handler tests: [1-9][0-9]* passed$')
 
     def test_deploy_orders_plugin_loading_and_unloading(self):
         for enabled in (False, True):

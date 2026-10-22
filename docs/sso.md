@@ -57,7 +57,8 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
 - 認可拒否は403、認証サービス不達・不正応答は503。障害時に無認証転送しない。
 - `enabled=false`：SSOは適用しない。Google用Secretは不要。保護していたアプリも公開される。
 - 古い設定でssoを省略した場合はfalse互換。ただし既存SSO用Ingressを検出したら、解除には
-  `enabled=false` の明示を求める。設定の意図しない欠落で解除しない。
+  `enabled=false` の明示を求める。`sso: {}` や他の項目だけを残してenabledを省略した場合も
+  解除は許可しない。
 
 アプリは `infra.sasano8.dev/route` で公開先を選ぶだけで、SSOやbufferingをラベルに埋め込まない。
 既定ルートを使うサンプルにも選択先ルートの認証ポリシーを適用する。
@@ -72,6 +73,9 @@ Google OAuth Webクライアントへ、実際に使うすべてのHTTPS callbac
 callbackは固定のパスを指定し、oauth2-proxyは信頼したHostから完全なURLを構成する。
 KongプラグインがHTTPS、許可Host、公開してよいOAuthエンドポイントを確認し、
 転送ヘッダーを上書きする。戻り先は許可した実Hostと公開ポートのみに限定する。
+Kong 3.9.1はNginx変数からX-Forwarded-*を再生成するため、プラグインは
+`upstream_x_forwarded_host`／`proto`／`port`も設定する。この連携は採用版のKong内部実装に依存する。
+Kong更新時はカスタムHTTPSポートを含むcallbackを実コンテナでも確認する。
 `/oauth2/auth`、`/ping`等は外部OAuthルートから公開しない。
 Googleの許可ユーザー・組織・同意画面の公開範囲も設定する。メールドメイン制限だけで
 アプリ内部の管理権限が付くわけではない。
@@ -135,11 +139,20 @@ oauth2-proxyのrequest loggingも無効にする。
 ## 検証手順
 
 ```bash
-python3 -m unittest discover -s tests -v
-texlua tests/session_auth.lua  # 任意: Pythonテストもtexluaがあれば実行する
+REQUIRE_LUA_TESTS=1 python3 -m unittest discover -s tests -v
 bin/infra test-plan --format markdown
 bin/infra test-plan --format shell > .local/external-sso-check.sh
 ```
+
+自動テストにはPython 3.10以上とLua実行環境が必要。`lua5.1`、`luajit`、`lua`、`texlua`の
+いずれかを用意する。上のコマンドはLuaがない場合も失敗し、認証プラグインのテストを
+スキップしたまま成功としない。GitHub ActionsもPython／Luaの全テストを実行する。
+
+[SAS-73](https://linear.app/sasano8/issue/SAS-73)にレビューで判明したバグと再現条件を記録した。
+回帰テストはenabled省略による既存SSO解除、複数アプリCookieとSSO更新Cookieの両立、
+HTTPS公開ポートを含む実効転送ヘッダー、api_pathsに応じた外部プランの期待値を検証する。
+Luaテストは実handlerを実行し、Kong 3.9.1のPDKとNginxのヘッダー転送規則をモックで再現する。
+KongコンテナやGoogleとの実通信はこのテストの対象外。
 
 プラン生成は通信・Secret取得を行わない。生成したshellを別ネットワークの端末で実行する。
 リダイレクトを追わず期待ステータスを確認し、TLS検証を無効にしない。

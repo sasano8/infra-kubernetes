@@ -42,10 +42,13 @@ def main():
                         help="Maximum wait for zero Pods, in seconds (default: 600)")
     parser.add_argument("--poll-interval", type=int, default=5,
                         help="Pod polling interval in seconds (default: 5)")
+    parser.add_argument("--internal", choices=("standard", "knative"), help="認証を含まない内部経路診断（外部公開しません）")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or min(args.timeout, args.scale_zero_timeout, args.poll_interval) <= 0:
         parser.error("port must be 1..65535 and all timeouts/intervals must be positive")
     config = infra.load(args.config)
+    if config["sso"]["enabled"] and not args.internal:
+        parser.error("SSO有効時は --internal standard / knative で内部のみ診断し、test-planで外部SSOを別途確認してください")
     cases = [
         ("standard-buffer", "hello-test-ssvc." + config["standard_domain"], None),
         ("standard-nobuffer", "hello-test-ssvc." + config["standard_nobuffer_domain"], None),
@@ -56,12 +59,23 @@ def main():
         ("standard-default", "hello-default-test-ssvc." + config[infra.resolve_route(config, "standard")], None),
         ("knative-default", "hello-default-test-ksvc." + config[infra.resolve_route(config, "knative")], "hello-default"),
     ])
+    if args.internal:
+        cases = [case for case in cases if case[0].startswith(args.internal)]
+        print("内部診断のみ: SSO・Kong・外部HTTPSの成功証跡にはなりません。", flush=True)
+    expected_count = len(cases) + sum(bool(service) for _, _, service in cases)
     command = shlex.split(args.kubectl)
     if not command:
         parser.error("kubectl command must not be empty")
     kubectl = command.copy()
-    command += ["-n", "kong-system", "port-forward", "--address=127.0.0.1",
-                "service/kong-proxy", f"{args.port}:80"]
+    namespace = "test" if args.internal else "kong-system"
+    service = "hello-ssvc" if args.internal == "standard" else "kong-proxy"
+    if args.internal == "knative":
+        # kubectl cannot port-forward the ExternalName alias; use the actual Kourier Service.
+        target = re.fullmatch(r"([^.]+)\.([^.]+)\.svc(?:\.cluster\.local)?", config["kourier_service"])
+        if not target:
+            parser.error("内部Knative診断はkourier_serviceをService.namespace.svc.cluster.local形式で指定してください")
+        service, namespace = target.groups()
+    command += ["-n", namespace, "port-forward", "--address=127.0.0.1", "service/" + service, f"{args.port}:80"]
     print("+ " + shlex.join(command), flush=True)
     ready = threading.Event()
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -157,10 +171,10 @@ def main():
             except (OSError, ValueError, KeyError, http.client.HTTPException,
                     RuntimeError, subprocess.SubprocessError) as exc:
                 print(f"FAIL: {name}-scale-zero-recovery: {exc}", flush=True)
-        if len(knative_ok) < 3:
+        if len(knative_ok) < sum(bool(service) for _, _, service in cases):
             print("SKIP: 初回リクエストが失敗した Knative の復帰確認", flush=True)
-        print(f"\n結果: {passed}/9 成功（明示4経路・既定2経路 / Knative 3サービスのスケールゼロ復帰）。")
-        return 0 if passed == 9 else 1
+        print(f"\n結果: {passed}/{expected_count} 成功（{len(cases)}経路・Knative復帰確認 / 内部診断={args.internal or 'Kong経由'}）。")
+        return 0 if passed == expected_count else 1
     finally:
         # Stop only the process this script started, even on failure or Ctrl-C.
         if process.poll() is None:

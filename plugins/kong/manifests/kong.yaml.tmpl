@@ -11,6 +11,7 @@ $rollout_strategy
   template:
     metadata:
       labels: {app: kong-ingress}
+$sso_pod_annotation
     spec:
       serviceAccountName: kong-ingress
       automountServiceAccountToken: false
@@ -18,13 +19,14 @@ $rollout_strategy
         - name: kong
           image: kong:3.9.1
           env:
+$sso_env
             - {name: KONG_DATABASE, value: "off"}
             - {name: KONG_PROXY_LISTEN, value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"}
             - {name: KONG_PORT_MAPS, value: "80:8000,443:8443"}
             - {name: KONG_ADMIN_LISTEN, value: "127.0.0.1:8001"}
             - {name: KONG_KIC, value: "on"}
             - {name: KONG_STATUS_LISTEN, value: "0.0.0.0:8100"}
-            - {name: KONG_PROXY_ACCESS_LOG, value: /dev/stdout}
+            - {name: KONG_PROXY_ACCESS_LOG, value: "$proxy_access_log"}
             - {name: KONG_PROXY_ERROR_LOG, value: /dev/stderr}
             - {name: KONG_NGINX_WORKER_PROCESSES, value: "1"}
           ports:
@@ -42,6 +44,7 @@ $host_https_port_line
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 512Mi}
+$sso_mount
         - name: ingress-controller
           image: kong/kubernetes-ingress-controller:3.4.3
           env:
@@ -76,6 +79,7 @@ $host_https_port_line
           volumeMounts:
             - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
       volumes:
+$sso_volume
         - name: api-token
           projected:
             sources:

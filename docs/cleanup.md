@@ -55,3 +55,6 @@ TXT レコードの後片付けのため、削除中は cert-manager を起動�
 
 既定ルート確認用の `hello-default` Knative Serviceと `standard-default`／`hello-default`
 Ingressも同じ `test` Namespace内の管理対象。
+
+SSOの無効化はプロジェクト全撤去とは別。OAuth公開入口と認証プロキシを所有確認して停止し、
+Secretやコード・Pluginは保持する。詳しくは [SSOの配備・無効化](sso.md)を参照。

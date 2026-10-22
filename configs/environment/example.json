@@ -18,5 +18,8 @@
   "default_routes": {
     "standard": "standard_domain",
     "knative": "knative_domain"
+  },
+  "sso": {
+    "enabled": false
   }
 }

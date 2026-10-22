@@ -167,3 +167,16 @@ class SSOTests(unittest.TestCase):
         self.assertIn('service/kourier',command)
         self.assertIn('kourier-system',command)
         self.assertNotIn('service/kourier-proxy',command)
+
+    def test_external_shell_checks_location_and_cleans_headers(self):
+        import os
+        fake=self.path/'curl'
+        fake.write_text('#!/usr/bin/env python3\nimport os,sys,pathlib\np=pathlib.Path(sys.argv[sys.argv.index("--dump-header")+1])\np.write_text("HTTP/1.1 302 Found\\r\\nLocation: "+os.environ["FAKE_LOCATION"]+"\\r\\n\\r\\n")\npathlib.Path(os.environ["FIXTURE_LOG"]).write_text(str(p))\nprint("302")\n')
+        fake.chmod(0o755)
+        log=self.path/'header-path'
+        plan=sso.test_plan(self.config(),'shell')
+        for location, success in (('/oauth2/start?rd=safe',True),('https://evil.test/',False)):
+            env=dict(os.environ,PATH=str(self.path)+os.pathsep+os.environ['PATH'],FAKE_LOCATION=location,FIXTURE_LOG=str(log))
+            result=subprocess.run(['bash'],input=plan,text=True,env=env,capture_output=True)
+            self.assertEqual(result.returncode==0,success)
+            self.assertFalse(Path(log.read_text()).exists())

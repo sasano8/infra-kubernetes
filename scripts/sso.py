@@ -217,7 +217,8 @@ def test_plan(c, format):
     suffix = "" if port == (443 if scheme == "https" else 80) else ":" + str(port)
     ids = ["standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain",
            c["default_routes"]["standard"], c["default_routes"]["knative"]]
-    lines = (["#!/usr/bin/env bash", "set -euo pipefail", "# 別ネットワークの端末で実施。Cookie・トークンは不要。リダイレクトは追わない。"]
+    lines = (["#!/usr/bin/env bash", "set -euo pipefail", "# 別ネットワークの端末で実施。Cookie・トークンは不要。リダイレクトは追わない。",
+               "headers=$(mktemp)", "trap " + shlex.quote('rm -f "$headers"') + " EXIT"]
              if format == "shell" else ["# 外部確認プラン", "", "別ネットワークで実施。未認証・認証済み・内部診断を別々に記録する。", ""])
     for host, route in zip(hosts(c), ids):
         mode = c["sso"]["routes"].get(route, "browser") if c["sso"]["enabled"] else "public"
@@ -226,9 +227,13 @@ def test_plan(c, format):
         curl = ["curl", "--silent", "--show-error", "--max-time", "180", "--output", "/dev/null", "--write-out", "%{http_code}", url]
         if format == "shell":
             lines += ["# " + route + " / " + mode,
-                      "status=$(" + shlex.join(curl) + ")", 'test "$status" = ' + shlex.quote(expected)]
+                      'status=$(' + shlex.join(curl) + ' --dump-header "$headers")', 'test "$status" = ' + shlex.quote(expected)]
+            if expected == "302":
+                code = "import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text().splitlines(); locations=[l.split(':',1)[1].strip() for l in lines if l.lower().startswith('location:')]; assert len(locations)==1 and locations[0].startswith('/oauth2/start?rd=')"
+                lines.append('python3 -c ' + shlex.quote(code) + ' "$headers"')
         else:
-            lines += ["- " + url + " — 未認証期待HTTP " + expected + "（" + mode + "）"]
+            location = " / Location: /oauth2/start?rd=..." if expected == "302" else ""
+            lines += ["- " + url + " — 未認証期待HTTP " + expected + location + "（" + mode + "）"]
     if c["sso"]["enabled"]:
         lines += ["# 手動確認: Googleログイン→callback→元URL、期限切れ、ログアウト、許可外403、認証停止503。",
                   "# 認証済みで/get・32MiB upload/download・dripを比較。Cookieやトークンをログに出さない。",

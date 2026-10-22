@@ -52,6 +52,8 @@ kind: Service
 metadata:
   name: hello
   namespace: test
+  labels:
+    infra.sasano8.dev/route: knative_domain
   annotations:
     networking.knative.dev/ingress-class: kourier.ingress.networking.knative.dev
 spec:
@@ -84,7 +86,7 @@ kind: Service
 metadata:
   name: hello-nobuffer
   labels:
-    infra.sasano8.dev/buffering: disabled
+    infra.sasano8.dev/route: knative_nobuffer_domain
   namespace: test
   annotations:
     networking.knative.dev/ingress-class: kourier.ingress.networking.knative.dev

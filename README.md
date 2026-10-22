@@ -212,3 +212,8 @@ sudo python3 scripts/prune-resources.py apply
 [ストリーミング検証](docs/streaming.md)を参照。アプリ別設定の自動反映は SAS-68 の別課題。
 
 4ドメインの設定・DNS・Knativeラベル・既存設定からの移行は [4経路の構成](docs/four-routes.md)を参照。
+
+KnativeアプリはService本体の `metadata.labels` に
+`infra.sasano8.dev/route: knative_domain` または
+`infra.sasano8.dev/route: knative_nobuffer_domain` を指定して公開ルートを選ぶ。
+アプリがbufferingの真偽を指定するのではなく、通信特性は選択したルートの定義に従う。

@@ -44,9 +44,18 @@ class FourRouteDomains(unittest.TestCase):
         for key in ("standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain"):
             self.assertIn(self.config[key], routes)
         domain = (self.directory / "knative-config/domain.yaml").read_text()
-        self.assertIn('infra.sasano8.dev/buffering: disabled', domain)
+        self.assertIn('infra.sasano8.dev/route: knative_nobuffer_domain', domain)
         apps = (self.directory / "apps.yaml").read_text()
-        self.assertIn('name: hello-nobuffer\n  labels:\n    infra.sasano8.dev/buffering: disabled', apps)
+        self.assertIn('name: hello-nobuffer\n  labels:\n    infra.sasano8.dev/route: knative_nobuffer_domain', apps)
+
+    def test_application_selects_route_without_buffering_policy(self):
+        infra.render(self.load(), self.directory)
+        apps = (self.directory / "apps.yaml").read_text()
+        self.assertIn('infra.sasano8.dev/route: knative_domain', apps)
+        self.assertIn('infra.sasano8.dev/route: knative_nobuffer_domain', apps)
+        self.assertNotIn('infra.sasano8.dev/buffering', apps)
+        self.assertNotIn('konghq.com/request-buffering', apps)
+        self.assertNotIn('konghq.com/response-buffering', apps)
 
     def enable_tls(self):
         self.config['tls'].update(enabled=True, email='admin@example.test', cloudflare_zone='example.test')

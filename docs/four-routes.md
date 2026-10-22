@@ -39,21 +39,40 @@ CloudflareはDNS onlyを使用する。HTTPS時は4ドメインとも `tls.cloud
 各ドメインとワイルドカードを対象に計4つのCertificateを生成し、Readyを待つ。
 認証用トークンは既存のSecret供給方式を維持する。
 
-## Knativeのドメイン選択
+## 公開ルートの選択と特性の責任分界
 
-`config-domain` はラベルなしのRouteに `knative_domain` を、次のServiceラベルがある
-Routeに `knative_nobuffer_domain` を割り当てる。
+アプリはKnative Service本体の `metadata.labels` で公開ルートの識別子を選ぶ。
+値はドメイン文字列ではなく、設定キーと同名のルートID。
 
 ```yaml
 metadata:
   labels:
-    infra.sasano8.dev/buffering: disabled
+    infra.sasano8.dev/route: knative_nobuffer_domain
 ```
 
-ラベルはService本体の `metadata.labels` に置く。Revisionの `spec.template.metadata.labels`
-だけではドメイン選択にならない。KnativeがServiceラベルをRouteへ引き継ぎ、標準のselectorで
-ドメインを選ぶ。Kong側の設定をKnativeへフィードバックしたり、Hostを書き換えたりしない。
-ラベルだけでKongのIngressが自動生成されるわけではない（SAS-68とは別）。
+| ルートID | 公開ドメイン設定 | 現在のルート特性 |
+| --- | --- | --- |
+| `knative_domain` | `knative_domain` | request／response buffering有効 |
+| `knative_nobuffer_domain` | `knative_nobuffer_domain` | request／response buffering無効 |
+
+アプリのラベルは公開先を選ぶだけであり、bufferingの真偽を指示しない。
+ドメイン・buffering・TLS・タイムアウトなどはインフラのルート定義が決める。
+現在のKong特性は `plugins/kong/manifests/routes.yaml.tmpl` とバックエンドServiceで定義する。
+ルートIDにnobufferを含む現行命名は、その特性をアプリAPIとして固定するものではない。
+将来の別特性もルート定義側で扱う。
+
+`config-domain` は `infra.sasano8.dev/route: knative_nobuffer_domain` に一致するRouteへ
+追加ドメインを割り当てる。KnativeがService本体のラベルをRouteに引き継ぐ。
+`spec.template.metadata.labels` だけに置いても公開ルート選択にならない。
+`knative_domain` は既定ドメインであり、ラベル省略も互換性のためこのルートへ送る。
+使用するルートIDは上記2種類。現状のKnative selectorは未知の値を拒否せず既定へ
+フォールバックするため、任意の文字列で新規ルートを宣言しない。ルートIDの検証・
+一般アプリへの公開連携はSAS-68で扱う。
+
+旧 `infra.sasano8.dev/buffering: disabled` は選択に使わない。利用済みのServiceは
+このラベルを削除し、`infra.sasano8.dev/route` に選択するルートIDを設定する。
+ドメインが変わる場合があるため、DNS・証明書・利用URLを確認する。
+KnativeのラベルだけでKong用Ingressを自動生成する機能は本変更には含めない。
 
 ## 既存環境への適用
 

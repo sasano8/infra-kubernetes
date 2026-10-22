@@ -411,7 +411,7 @@ def deploy(cluster, c, output):
         cluster.call("apply", "--server-side", "--field-manager=knative-config", "--force-conflicts", "-f", domain_file)
     else:
         current = cluster.get("configmap/config-domain", "-n", "knative-serving").get("data", {})
-        selector = "selector:\n  infra.sasano8.dev/buffering: disabled\n"
+        selector = "selector:\n  infra.sasano8.dev/route: knative_nobuffer_domain\n"
         if current.get(c["knative_domain"]) != "" or current.get(c["knative_nobuffer_domain"]) != selector:
             raise ValueError("既存クラスタの config-domain を生成された domain.yaml と照合し、管理者が設定してください。自動上書きしません")
     # Reserve namespaces before writing anything inside them. Do not adopt unrelated namespaces.

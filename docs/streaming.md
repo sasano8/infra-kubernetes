@@ -7,7 +7,7 @@
 nobuffer 側の2つの Kong Ingress に `konghq.com/request-buffering: "false"` と
 `konghq.com/response-buffering: "false"` を指定する。Kourier への Host 保持も維持する。
 buffer 側は両設定を `"true"` にする。[4経路の構成](four-routes.md)を参照。
-これはサンプルのルート設定であり、Knative の annotation を自動反映する機能
+これはサンプルのルート設定であり、Knative の公開ルート選択を一般アプリの公開へ連携する機能
 (SAS-68) は含まない。指定しただけで経路全体の非バッファリングが実証されたとは扱わない。
 
 ## 配備と前提

@@ -6,8 +6,8 @@ metadata:
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
-    konghq.com/request-buffering: "false"
-    konghq.com/response-buffering: "false"
+    konghq.com/request-buffering: "true"
+    konghq.com/response-buffering: "true"
 spec:
   ingressClassName: kong-ingress
 $standard_tls
@@ -46,13 +46,61 @@ metadata:
   annotations:
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
-    konghq.com/request-buffering: "false"
-    konghq.com/response-buffering: "false"
+    konghq.com/request-buffering: "true"
+    konghq.com/response-buffering: "true"
 spec:
   ingressClassName: kong-ingress
 $knative_tls
   rules:
     - host: "$knative_host"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kourier-proxy
+                port: {number: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: standard-nobuffer
+  namespace: test
+  annotations:
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+    konghq.com/request-buffering: "false"
+    konghq.com/response-buffering: "false"
+spec:
+  ingressClassName: kong-ingress
+$standard_nobuffer_tls
+  rules:
+    - host: "$standard_nobuffer_host"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello-ssvc
+                port: {number: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-nobuffer
+  namespace: test
+  annotations:
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+    konghq.com/request-buffering: "false"
+    konghq.com/response-buffering: "false"
+spec:
+  ingressClassName: kong-ingress
+$knative_nobuffer_tls
+  rules:
+    - host: "$knative_nobuffer_host"
       http:
         paths:
           - path: /

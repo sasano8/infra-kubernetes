@@ -92,7 +92,9 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | `mode` | `new-host` / `existing` |
 | `base_domain` | 任意の共通ベースドメイン。省略 / null 可。参照情報であり DNS やルーティングは設定しない |
 | `knative_domain` | Knative ドメイン。新規構築時は config-domain に設定 |
-| `standard_domain` | 通常経路のベースドメイン。公開名は `hello-test-ssvc.<standard_domain>` |
+| `standard_domain` | 通常bufferのベースドメイン。公開名は `hello-test-ssvc.<standard_domain>` |
+| `standard_nobuffer_domain` | 通常nobufferのベースドメイン（必須） |
+| `knative_nobuffer_domain` | Knative nobufferのベースドメイン（必須） |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
 | `tls` | 省略時は無効。Cloudflare DNS-01・証明書更新・Kong の HTTPS 公開設定。詳細は [HTTPS](https.md) |
@@ -164,7 +166,7 @@ Terminating / Error の Pod も削除されて0件になるまで待つ。
 
 待機中は別ターミナルや監視からも検証用 Knative Service にアクセスしないこと。
 0件になる前には復帰リクエストを送らず、期限内に0件にならなければ失敗とする。
-すべて成功すると `3/3 成功` と表示し、終了コード0を返す。
+すべて成功すると `6/6 成功` と表示し、終了コード0を返す。
 途中の失敗やスキップがあれば終了コード1を返す。
 終了時には自身が起動した port-forward を停止する。
 
@@ -174,11 +176,9 @@ Terminating / Error の Pod も削除されて0件になるまで待つ。
 sudo python3 scripts/check-routes.py --scale-zero-timeout 900
 ```
 
-ユーザーの AWS VM で、2経路の HTTP 200・期待する本文を確認済み。
-手動で Pod が0件になった後の再アクセスも HTTP 200 が報告されている。
-スケールゼロ復帰を追加した版のスクリプトは、VM 上での実行結果待ち。
-[HTTP・スケールゼロ復帰・結果記録](verification.md)と
-[撤去手順](cleanup.md)を参照。
+旧 http-echo 版の2経路HTTPと手動スケールゼロ復帰はユーザー報告あり。
+現在のgo-httpbin・4経路構成の実クラスタ検証は未実施。
+[HTTP・スケールゼロ復帰・結果記録](verification.md)と[撤去手順](cleanup.md)を参照。
 
 ## 管理構成と移植
 
@@ -217,3 +217,6 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 旧 `standard_host` は `standard_domain` の別名として使用可能。同時指定はエラー。
 公開名は通常経路が `hello-test-ssvc.<standard_domain>`、Knative が
 `hello-test-ksvc.<knative_domain>`。通常リソース名は `hello-ssvc`、Knative は `test/hello`。
+
+現在は通常／Knativeにbuffer／nobufferを設けた4経路。追加設定と移行は
+[4経路の構成](four-routes.md)を参照。確認スクリプトは4経路＋Knative 2サービスの復帰を検証する。

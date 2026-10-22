@@ -1,6 +1,6 @@
 # infra-kubernetes
 
-Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の2経路を確認する。
+Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の buffer／nobuffer 計4経路を確認する。
 Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
 ## ルーティング
@@ -33,7 +33,8 @@ Kong の Namespace は `kong-system`、アプリは `test`。
 証明書の発行元は **Let's Encrypt**。Cloudflare は DNS-01 認証用の DNS を管理する。
 Cloudflare API トークンは `test/cloudflare-api-token` Secret に保存し、
 `test/cloudflare-letsencrypt` Issuer が参照する。
-証明書と秘密鍵は `test/standard-tls` と `test/knative-wildcard-tls` の TLS Secret に保存する。
+証明書と秘密鍵は `test/standard-tls` と `test/knative-wildcard-tls` の TLS Secret に保存する。nobuffer用には `test/standard-nobuffer-tls` と
+`test/knative-nobuffer-tls` も作成する。
 
 ```mermaid
 flowchart LR
@@ -91,6 +92,8 @@ cat > configs/environment/local.json <<'EOF'
   "base_domain": "tmp.ys-method-dev.com",
   "knative_domain": "knative.tmp.ys-method-dev.com",
   "standard_domain": "standard.tmp.ys-method-dev.com",
+  "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
+  "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -140,8 +143,10 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 | 種類 | リソース名 | 公開ホスト名 |
 | --- | --- | --- |
-| Knative Service（ksvc） | `hello` | `hello-test-ksvc.<knative_domain>` |
-| 通常 Service / Deployment（ssvc） | `hello-ssvc` | `hello-test-ssvc.<standard_domain>` |
+| Knative buffer（ksvc） | `hello` | `hello-test-ksvc.<knative_domain>` |
+| 通常 buffer（ssvc） | `hello-ssvc` | `hello-test-ssvc.<standard_domain>` |
+| 通常 nobuffer（同じ Service） | `hello-ssvc` | `hello-test-ssvc.<standard_nobuffer_domain>` |
+| Knative nobuffer | `hello-nobuffer` | `hello-nobuffer-test-ksvc.<knative_nobuffer_domain>` |
 
 ## 動作確認
 
@@ -157,18 +162,21 @@ port-forward を自動で起動し、次を確認する。
 
 - Kong → 通常 Service：HTTP 200・go-httpbin JSON の通常 Service 側 Host
 - Kong → Kourier → Knative：HTTP 200・go-httpbin JSON の Knative 側 Host
-- Knative の Pod が0件になるまで待ち、再アクセスによる復帰を確認
+- 通常／Knative の nobuffer 経路：HTTP 200 と公開 Host の保持
+- Knative 2サービスの Pod がそれぞれ0件になるまで待ち、再アクセスによる復帰を確認
 
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
-待機中は別のアクセスを止める。すべて成功すると `3/3 成功` と表示する。
+待機中は別のアクセスを止める。すべて成功すると `6/6 成功` と表示する。
 
-### 外部端末から：DNS・HTTPS・両経路
+### 外部端末から：DNS・HTTPS・4経路
 
 手元の PC など、Kong ホスト以外の外部端末から実行する。証明書も検証するため `-k` は付けない。
 
 ```bash
 curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
 curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard-nobuffer.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-nobuffer-test-ksvc.knative-nobuffer.tmp.ys-method-dev.com/get
 ```
 
 それぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） が返れば成功。
@@ -199,6 +207,8 @@ sudo python3 scripts/prune-resources.py apply
 
 通常 Service と Knative の hello は、同じ `ghcr.io/mccutchen/go-httpbin:2.21.0` を使用する。
 リソース名・公開 URL は維持し、`/get` で疎通と Host 保持を確認する。
-両サンプルの Kong Ingress は request／response buffering を無効化している。
+既存ドメインは request／response buffering 有効、追加する nobuffer ドメインは無効。
 `/headers`、`/drip`、`/stream-bytes`、`/upload` の確認方法は
 [ストリーミング検証](docs/streaming.md)を参照。アプリ別設定の自動反映は SAS-68 の別課題。
+
+4ドメインの設定・DNS・Knativeラベル・既存設定からの移行は [4経路の構成](docs/four-routes.md)を参照。

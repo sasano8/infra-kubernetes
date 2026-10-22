@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import infra
 from urllib.parse import urlsplit
 
 
@@ -44,20 +45,12 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or min(args.timeout, args.scale_zero_timeout, args.poll_interval) <= 0:
         parser.error("port must be 1..65535 and all timeouts/intervals must be positive")
-    config = json.loads(args.config.read_text())
-    if "domain" in config and "knative_domain" in config:
-        parser.error("domain と knative_domain は同時に指定できません")
-    knative_domain = config.get("knative_domain", config.get("domain"))
-    if not isinstance(knative_domain, str) or not knative_domain:
-        parser.error("knative_domain を指定してください（旧 domain も使用可能）")
-    if "standard_host" in config and "standard_domain" in config:
-        parser.error("standard_host と standard_domain は同時に指定できません")
-    standard_domain = config.get("standard_domain", config.get("standard_host"))
-    if not isinstance(standard_domain, str) or not standard_domain:
-        parser.error("standard_domain を指定してください（旧 standard_host も使用可能）")
+    config = infra.load(args.config)
     cases = [
-        ("standard", "hello-test-ssvc." + standard_domain),
-        ("knative", "hello-test-ksvc." + knative_domain),
+        ("standard-buffer", "hello-test-ssvc." + config["standard_domain"], None),
+        ("standard-nobuffer", "hello-test-ssvc." + config["standard_nobuffer_domain"], None),
+        ("knative-buffer", "hello-test-ksvc." + config["knative_domain"], "hello"),
+        ("knative-nobuffer", "hello-nobuffer-test-ksvc." + config["knative_nobuffer_domain"], "hello-nobuffer"),
     ]
     command = shlex.split(args.kubectl)
     if not command:
@@ -96,7 +89,7 @@ def main():
         finally:
             connection.close()
 
-    def wait_for_pods(zero, timeout):
+    def wait_for_pods(service, zero, timeout):
         started = time.monotonic()
         deadline = started + timeout
         while True:
@@ -107,7 +100,7 @@ def main():
                 raise RuntimeError("Pod がゼロになりませんでした" if zero else "復帰後の Ready Pod を確認できませんでした")
             result = subprocess.run(
                 kubectl + ["--request-timeout=10s", "-n", "test", "get", "pods",
-                           "-l", "serving.knative.dev/service=hello", "-o", "json"],
+                           "-l", "serving.knative.dev/service=" + service, "-o", "json"],
                 stdout=subprocess.PIPE, text=True, check=True, timeout=min(15, remaining),
             )
             pods = json.loads(result.stdout)["items"]
@@ -133,37 +126,37 @@ def main():
             if time.monotonic() >= deadline:
                 raise RuntimeError("port-forward startup timed out after 30 seconds")
         passed = 0
-        knative_ok = False
-        for name, host in cases:
+        knative_ok = []
+        for name, host, service in cases:
             try:
                 request(name, host)
                 passed += 1
-                if name == "knative":
-                    knative_ok = True
+                if service:
+                    knative_ok.append((name, host, service))
                 print(f"PASS: {name}", flush=True)
             except (OSError, ValueError, http.client.HTTPException, RuntimeError) as exc:
                 print(f"FAIL: {name}: {exc}", flush=True)
-        if knative_ok:
+        for name, host, service in knative_ok:
             try:
-                print("\n[scale-zero] テスト内容: Knative の Pod が0件になった後、同じ Kong 入口へ"
+                print(f"\n[scale-zero] {name}: テスト内容: Knative の Pod が0件になった後、同じ Kong 入口へ"
                       "再アクセスし、HTTP 200・go-httpbin JSON の Host・Ready Pod の再生成を確認します。",
                       flush=True)
                 print("\n[scale-zero] Pod がゼロ件になるまで待機します（目安: 最後のアクセスから1〜2分程度、"
                       f"最大 {args.scale_zero_timeout} 秒）。"
                       "Knative への別のアクセスも停止してください。", flush=True)
-                wait_for_pods(zero=True, timeout=args.scale_zero_timeout)
+                wait_for_pods(service, zero=True, timeout=args.scale_zero_timeout)
                 # No HTTP requests are sent during the zero-Pod wait above.
-                request("knative-cold-start", cases[1][1])
-                wait_for_pods(zero=False, timeout=args.timeout)
+                request(name + "-cold-start", host)
+                wait_for_pods(service, zero=False, timeout=args.timeout)
                 passed += 1
-                print("PASS: scale-zero-recovery", flush=True)
+                print(f"PASS: {name}-scale-zero-recovery", flush=True)
             except (OSError, ValueError, KeyError, http.client.HTTPException,
                     RuntimeError, subprocess.SubprocessError) as exc:
-                print(f"FAIL: scale-zero-recovery: {exc}", flush=True)
-        else:
-            print("SKIP: scale-zero-recovery（Knative の初回リクエストが失敗）", flush=True)
-        print(f"\n結果: {passed}/3 成功（通常 Service / Knative / スケールゼロ復帰）。")
-        return 0 if passed == 3 else 1
+                print(f"FAIL: {name}-scale-zero-recovery: {exc}", flush=True)
+        if len(knative_ok) < 2:
+            print("SKIP: 初回リクエストが失敗した Knative の復帰確認", flush=True)
+        print(f"\n結果: {passed}/6 成功（4経路 / Knative 2サービスのスケールゼロ復帰）。")
+        return 0 if passed == 6 else 1
     finally:
         # Stop only the process this script started, even on failure or Ctrl-C.
         if process.poll() is None:

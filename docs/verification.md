@@ -11,7 +11,7 @@ VM で実施する手順。旧 http-echo 版では、ユーザーの AWS VM で2
 
 ## 入口と通常リクエスト
 
-### 1コマンドで2経路とスケールゼロ復帰を確認する
+### 1コマンドで4経路とスケールゼロ復帰を確認する
 
 リポジトリのルートで次を実行する。Python 標準ライブラリのみを使用する。
 
@@ -22,17 +22,18 @@ sudo python3 scripts/check-routes.py
 
 `configs/environment/local.json` のドメイン設定を読み、Kong の port-forward を
 127.0.0.1:18080 で起動する。ログは別スレッドで読み取り、転送開始を待ってから
-両経路の HTTP ステータスと本文を検証する。
-両方が200で、本文がそれぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） なら成功。
+4経路の HTTP ステータスと本文を検証する。
+4経路が200で、本文がそれぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） なら成功。
 どちらかが失敗したら終了コード1。終了・失敗・Ctrl-C 時には自身が起動した
 port-forward を停止する。既存の8080番の port-forward は停止しない。
-続いて「Pod がゼロ件になるまで待機します」と表示し、5秒間隔で Pod 数を取得する。
+続いて Knative の `hello` と `hello-nobuffer` のそれぞれについて、
+「Pod がゼロ件になるまで待機します」と表示し、5秒間隔で Pod 数を取得する。
 Terminating / Error の Pod も残っている間はゼロと扱わない。
 待機中は Knative に HTTP リクエストを送らず、Pod が0件になった後、同じ Kong 入口へ
 リクエストして HTTP 200・go-httpbin JSON の Knative 側 Host と Ready Pod の再生成を確認する。
 待機時間の目安は最後のアクセスから通常1〜2分程度。
 autoscaling window の30秒に加え、スケールゼロの猶予期間や Pod の終了処理があるため前後する。
-すべて成功すれば `3/3 成功`。待機上限は既定600秒で、API エラーや期限切れは失敗とする。
+すべて成功すれば `6/6 成功`。各Knativeサービスの待機上限は既定600秒で、API エラーや期限切れは失敗とする。
 Knative の初回リクエストが失敗した場合、復帰確認はスキップし終了コード1を返す。
 実行中は別ターミナルや監視から Knative にアクセスしないこと。
 
@@ -51,6 +52,10 @@ sudo python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
 ```
 
 ### 手動で確認する場合
+
+以下は buffer 側の手順。nobuffer 側も [4経路の構成](four-routes.md)のホストで
+同じ確認を行う。Knative nobuffer は `ksvc/hello-nobuffer` と
+`serving.knative.dev/service=hello-nobuffer` を使い、個別にPod 0件と復帰を確認する。
 
 VM のターミナル A:
 

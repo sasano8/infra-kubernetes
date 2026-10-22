@@ -88,7 +88,9 @@ sudo python3 scripts/check-routes.py
 ```
 
 期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
-確認スクリプトは VM 内の HTTP 2経路とスケールゼロ復帰を確認する。
+確認スクリプトは VM 内の HTTP 4経路とスケールゼロ復帰を確認する。
 外部 HTTPS は上記の curl で証明書を検証したまま確認する。
 
 完全な設定例、証明書の対象、発行状況・更新・撤去は [HTTPS の詳細](https.md) を参照。
+
+nobuffer用の2ドメインにもDNSレコードが必要。[4経路のDNS一覧](four-routes.md)を参照。

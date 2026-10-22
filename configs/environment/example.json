@@ -12,5 +12,7 @@
     "cloudflare_token_file": ".local/secrets/cloudflare-api-token",
     "acme_server": "https://acme-v02.api.letsencrypt.org/directory",
     "host_https_port": 443
-  }
+  },
+  "standard_nobuffer_domain": "standard-nobuffer.example.test",
+  "knative_nobuffer_domain": "knative-nobuffer.example.test"
 }

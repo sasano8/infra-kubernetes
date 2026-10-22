@@ -41,7 +41,7 @@ class ResponseContract(unittest.TestCase):
 
 
 class FourRouteCommand(unittest.TestCase):
-    def test_all_four_hosts_and_both_zero_recoveries(self):
+    def test_explicit_and_default_hosts_and_all_zero_recoveries(self):
         import io
         from contextlib import redirect_stdout
         from types import SimpleNamespace
@@ -92,9 +92,10 @@ class FourRouteCommand(unittest.TestCase):
                 patch.object(routes.subprocess, 'run', side_effect=get_pods), \
                 patch.object(routes.http.client, 'HTTPConnection', Connection), redirect_stdout(output):
             self.assertEqual(routes.main(), 0)
-        self.assertIn('6/6 成功', output.getvalue())
-        self.assertEqual(len(calls), 6)
-        self.assertEqual(len(set(host for path, host in calls)), 4)
+        self.assertIn('9/9 成功', output.getvalue())
+        self.assertEqual(len(calls), 9)
+        self.assertEqual(len(set(host for path, host in calls)), 6)
         self.assertTrue(all(path == '/get' for path, host in calls))
         self.assertEqual(pod_polls, {'serving.knative.dev/service=hello': 2,
-                                     'serving.knative.dev/service=hello-nobuffer': 2})
+                                     'serving.knative.dev/service=hello-nobuffer': 2,
+                                     'serving.knative.dev/service=hello-default': 2})

@@ -57,15 +57,18 @@ metadata:
 
 アプリのラベルは公開先を選ぶだけであり、bufferingの真偽を指示しない。
 ドメイン・buffering・TLS・タイムアウトなどはインフラのルート定義が決める。
-現在のKong特性は `plugins/kong/manifests/routes.yaml.tmpl` とバックエンドServiceで定義する。
+ルートの種別・buffering・TLS Secretの対応は `scripts/infra.py` の `PUBLIC_ROUTES` に定義し、
+Kong Ingressへ生成する。バックエンドのタイムアウトはService定義が持つ。
 ルートIDにnobufferを含む現行命名は、その特性をアプリAPIとして固定するものではない。
 将来の別特性もルート定義側で扱う。
 
 `config-domain` は `infra.sasano8.dev/route: knative_nobuffer_domain` に一致するRouteへ
 追加ドメインを割り当てる。KnativeがService本体のラベルをRouteに引き継ぐ。
 `spec.template.metadata.labels` だけに置いても公開ルート選択にならない。
-`knative_domain` は既定ドメインであり、ラベル省略も互換性のためこのルートへ送る。
-使用するルートIDは上記2種類。現状のKnative selectorは未知の値を拒否せず既定へ
+ラベル省略時は `default_routes.knative` で選んだルートへ送る。
+Knativeのconfig-domainでは選択先ドメインを空selectorの既定とし、もう一方を
+ルートIDのselectorで選択する。両方の明示指定は既定設定にかかわらず同じ公開先を維持する。
+使用するルートIDは上記2種類。現状のKnative selectorは未知の値を拒否せず設定した既定へ
 フォールバックするため、任意の文字列で新規ルートを宣言しない。ルートIDの検証・
 一般アプリへの公開連携はSAS-68で扱う。
 
@@ -73,6 +76,35 @@ metadata:
 このラベルを削除し、`infra.sasano8.dev/route` に選択するルートIDを設定する。
 ドメインが変わる場合があるため、DNS・証明書・利用URLを確認する。
 KnativeのラベルだけでKong用Ingressを自動生成する機能は本変更には含めない。
+
+## 種別ごとの既定公開ルート
+
+インストール時のconfigureで通常Service用・Knative用をそれぞれ選択し、JSONへ保存する。
+
+```json
+"default_routes": {
+  "standard": "standard_domain",
+  "knative": "knative_nobuffer_domain"
+}
+```
+
+明示ルート指定を優先し、省略時は種別の既定を解決する。両方の既定は有効な同種別の
+ルートIDが必須。`null`・空文字・未知値・種別不適合は拒否する。既定の無効化や
+公開ルートの明示指定必須モードは未実装で、SAS-71のSomeday対象。
+旧設定で `default_routes` や片方のキーが省略されていれば、通常は `standard_domain`、
+Knativeは `knative_domain` へ補完する。configure後の再実行で選択を変更しない。
+既定の変更は未指定アプリのURL・buffering等を変更するため、影響を確認して再配備する。
+
+4つの明示ルートサンプルに加えて、既定を利用する公開ホストを生成する。
+
+| 検証対象 | 公開ホスト | バックエンド |
+| --- | --- | --- |
+| 通常の既定 | `hello-default-test-ssvc.<選んだ通常ドメイン>` | 同じ `hello-ssvc` Service |
+| Knativeの既定 | `hello-default-test-ksvc.<選んだKnativeドメイン>` | ラベルなしの `hello-default` Knative Service |
+
+既定ホストのbuffering・TLS Secretも選択したルート定義から生成する。これらは生成時の
+既定解決を検証するサンプルであり、任意Serviceの継続監視・自動公開はSAS-68の対象。
+旧既定ドメインのIngress設定は同名リソースの更新で切り替える。
 
 ## 既存環境への適用
 
@@ -93,9 +125,9 @@ sudo bin/infra deploy --kubectl 'k0s kubectl'
 sudo python3 scripts/check-routes.py
 ```
 
-4つのHTTP疎通・Host保持、Knative 2サービスそれぞれのPod 0件→復帰の計6項目が成功すると
-`6/6 成功`。各サービスのゼロ待機上限は既定600秒。
-外部ネットワークからも4ホストのHTTPS `/get` を確認する。
+明示4経路＋既定2経路のHTTP疎通・Host保持、Knative 3サービスそれぞれのPod 0件→復帰の計9項目が成功すると
+`9/9 成功`。各サービスのゼロ待機上限は既定600秒。
+外部ネットワークからも明示4ホストと既定2ホストのHTTPS `/get` を確認する。
 [ストリーミング検証](streaming.md)を同じパラメータで4経路に実施して比較する。
 TLS検証を無効にしない。現在の4経路構成の実クラスタ・外部HTTPS・buffer差の実測は未実施。
 

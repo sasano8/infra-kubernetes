@@ -37,14 +37,15 @@ class FourRouteDomains(unittest.TestCase):
     def test_four_rendered_routes_and_knative_selector(self):
         infra.render(self.load(), self.directory)
         routes = (self.directory / "routes.yaml").read_text()
-        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 2)
+        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 4)
         self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 2)
-        self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 2)
+        self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 4)
         self.assertEqual(routes.count('konghq.com/response-buffering: "false"'), 2)
         for key in ("standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain"):
             self.assertIn(self.config[key], routes)
         domain = (self.directory / "knative-config/domain.yaml").read_text()
         self.assertIn('infra.sasano8.dev/route: knative_nobuffer_domain', domain)
+        self.assertIn('  name: config-domain\n  namespace: knative-serving\ndata:\n', domain)
         apps = (self.directory / "apps.yaml").read_text()
         self.assertIn('name: hello-nobuffer\n  labels:\n    infra.sasano8.dev/route: knative_nobuffer_domain', apps)
 
@@ -80,3 +81,56 @@ class FourRouteDomains(unittest.TestCase):
         self.config['knative_nobuffer_domain'] = 'outside.invalid'
         with self.assertRaisesRegex(ValueError, '範囲外'):
             self.load()
+
+
+    def test_legacy_defaults_are_preserved(self):
+        del self.config["default_routes"]
+        c = self.load()
+        self.assertEqual(c["default_routes"], infra.DEFAULT_ROUTES)
+
+    def test_default_disable_unknown_and_wrong_kind_are_rejected(self):
+        for supplied in (None, [], {"standard": None}, {"knative": ""},
+                         {"standard": "knative_domain"}, {"knative": "unknown"},
+                         {"standard": False}, {"other": "standard_domain"}):
+            self.config["default_routes"] = supplied
+            with self.subTest(supplied=supplied), self.assertRaises(ValueError):
+                self.load()
+
+    def test_selectable_defaults_preserve_explicit_selection(self):
+        for standard in ("standard_domain", "standard_nobuffer_domain"):
+            for knative in ("knative_domain", "knative_nobuffer_domain"):
+                self.config["default_routes"] = {"standard": standard, "knative": knative}
+                c = self.load()
+                for kind in ("standard", "knative"):
+                    self.assertEqual(infra.resolve_route(c, kind), c["default_routes"][kind])
+                    for route in infra.PUBLIC_ROUTES:
+                        if infra.PUBLIC_ROUTES[route]["kind"] == kind:
+                            self.assertEqual(infra.resolve_route(c, kind, route), route)
+                domains = infra.knative_domain_data(c)
+                self.assertEqual(domains[c[knative]], "")
+                other = "knative_domain" if knative == "knative_nobuffer_domain" else "knative_nobuffer_domain"
+                self.assertIn("infra.sasano8.dev/route: " + other, domains[c[other]])
+                infra.render(c, self.directory)
+                routes = (self.directory / "routes.yaml").read_text()
+                for kind, route in (("standard", standard), ("knative", knative)):
+                    name = "standard-default" if kind == "standard" else "hello-default"
+                    document = next(d for d in routes.split("---") if "  name: " + name + "\n" in d)
+                    self.assertIn(c[route], document)
+                    self.assertIn('buffering: "' + str(infra.PUBLIC_ROUTES[route]["buffering"]).lower() + '"', document)
+
+
+    def test_installer_saves_selected_defaults(self):
+        from unittest.mock import patch
+        target = self.directory / "installed.json"
+        def answer(prompt):
+            if prompt.startswith("standard の既定"):
+                return "standard_nobuffer_domain"
+            if prompt.startswith("knative の既定"):
+                return "knative_nobuffer_domain"
+            return ""
+        with patch("builtins.input", side_effect=answer):
+            infra.configure(target)
+        self.assertEqual(infra.load(target)["default_routes"], {
+            "standard": "standard_nobuffer_domain", "knative": "knative_nobuffer_domain"})
+        with self.assertRaises(ValueError):
+            infra.configure(target)

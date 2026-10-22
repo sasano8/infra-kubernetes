@@ -163,10 +163,10 @@ port-forward を自動で起動し、次を確認する。
 - Kong → 通常 Service：HTTP 200・go-httpbin JSON の通常 Service 側 Host
 - Kong → Kourier → Knative：HTTP 200・go-httpbin JSON の Knative 側 Host
 - 通常／Knative の nobuffer 経路：HTTP 200 と公開 Host の保持
-- Knative 2サービスの Pod がそれぞれ0件になるまで待ち、再アクセスによる復帰を確認
+- Knative 3サービスの Pod がそれぞれ0件になるまで待ち、再アクセスによる復帰を確認
 
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
-待機中は別のアクセスを止める。すべて成功すると `6/6 成功` と表示する。
+待機中は別のアクセスを止める。すべて成功すると `9/9 成功` と表示する。
 
 ### 外部端末から：DNS・HTTPS・4経路
 
@@ -217,3 +217,8 @@ KnativeアプリはService本体の `metadata.labels` に
 `infra.sasano8.dev/route: knative_domain` または
 `infra.sasano8.dev/route: knative_nobuffer_domain` を指定して公開ルートを選ぶ。
 アプリがbufferingの真偽を指定するのではなく、通信特性は選択したルートの定義に従う。
+
+インストール時に `default_routes.standard` と `default_routes.knative` を選択できる。
+両方とも有効なルートが必須で、既定ルートの無効化は未対応。
+明示指定を省略した場合は設定した既定を使う。既定利用の追加2サンプルと3つのKnativeの復帰を
+含め、確認スクリプトは計9項目を確認する。設定例とURLは [4経路の構成](docs/four-routes.md)を参照。

@@ -14,5 +14,9 @@
     "host_https_port": 443
   },
   "standard_nobuffer_domain": "standard-nobuffer.example.test",
-  "knative_nobuffer_domain": "knative-nobuffer.example.test"
+  "knative_nobuffer_domain": "knative-nobuffer.example.test",
+  "default_routes": {
+    "standard": "standard_domain",
+    "knative": "knative_domain"
+  }
 }

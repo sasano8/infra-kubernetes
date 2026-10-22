@@ -166,7 +166,7 @@ Terminating / Error の Pod も削除されて0件になるまで待つ。
 
 待機中は別ターミナルや監視からも検証用 Knative Service にアクセスしないこと。
 0件になる前には復帰リクエストを送らず、期限内に0件にならなければ失敗とする。
-すべて成功すると `6/6 成功` と表示し、終了コード0を返す。
+すべて成功すると `9/9 成功` と表示し、終了コード0を返す。
 途中の失敗やスキップがあれば終了コード1を返す。
 終了時には自身が起動した port-forward を停止する。
 
@@ -219,4 +219,4 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 `hello-test-ksvc.<knative_domain>`。通常リソース名は `hello-ssvc`、Knative は `test/hello`。
 
 現在は通常／Knativeにbuffer／nobufferを設けた4経路。追加設定と移行は
-[4経路の構成](four-routes.md)を参照。確認スクリプトは4経路＋Knative 2サービスの復帰を検証する。
+[4経路の構成](four-routes.md)を参照。確認スクリプトは明示4経路＋既定2経路＋Knative 3サービスの復帰を検証する。

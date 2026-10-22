@@ -150,3 +150,7 @@ Knative の旧 field-manager はリソース名ではなく Kubernetes の内部
 新規環境では `knative-upstream` を使う。既存環境で旧 ID がログに出ても、
 旧名の Secret や Namespace を新しく作るわけではない。
 他の管理者との競合を一括 `--force-conflicts` で上書きしない。
+
+明示4ルートとは別に、種別ごとの既定ルートを使う `standard-default`／`hello-default`
+Ingressも生成する。公開先ドメイン・buffering・TLSは選択したルート定義を使う。
+[既定ルート設定と追加サンプル](four-routes.md)を参照。

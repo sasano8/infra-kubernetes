@@ -22,18 +22,18 @@ sudo python3 scripts/check-routes.py
 
 `configs/environment/local.json` のドメイン設定を読み、Kong の port-forward を
 127.0.0.1:18080 で起動する。ログは別スレッドで読み取り、転送開始を待ってから
-4経路の HTTP ステータスと本文を検証する。
-4経路が200で、本文がそれぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） なら成功。
+明示4経路と既定2経路の HTTP ステータスと本文を検証する。
+6つの公開ホストが200で、本文がそれぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） なら成功。
 どちらかが失敗したら終了コード1。終了・失敗・Ctrl-C 時には自身が起動した
 port-forward を停止する。既存の8080番の port-forward は停止しない。
-続いて Knative の `hello` と `hello-nobuffer` のそれぞれについて、
+続いて Knative の `hello`・`hello-nobuffer`・`hello-default` のそれぞれについて、
 「Pod がゼロ件になるまで待機します」と表示し、5秒間隔で Pod 数を取得する。
 Terminating / Error の Pod も残っている間はゼロと扱わない。
 待機中は Knative に HTTP リクエストを送らず、Pod が0件になった後、同じ Kong 入口へ
 リクエストして HTTP 200・go-httpbin JSON の Knative 側 Host と Ready Pod の再生成を確認する。
 待機時間の目安は最後のアクセスから通常1〜2分程度。
 autoscaling window の30秒に加え、スケールゼロの猶予期間や Pod の終了処理があるため前後する。
-すべて成功すれば `6/6 成功`。各Knativeサービスの待機上限は既定600秒で、API エラーや期限切れは失敗とする。
+すべて成功すれば `9/9 成功`。各Knativeサービスの待機上限は既定600秒で、API エラーや期限切れは失敗とする。
 Knative の初回リクエストが失敗した場合、復帰確認はスキップし終了コード1を返す。
 実行中は別ターミナルや監視から Knative にアクセスしないこと。
 
@@ -179,3 +179,8 @@ k -n knative-serving get cm config-network config-domain config-autoscaler -o ya
 既存クラスタの証跡に機密情報が含まれないか確認してから共有する。
 
 大容量転送・逐次レスポンスは [ストリーミング検証](streaming.md)を参照。
+
+既定利用の2ホストも [既定ルート設定](four-routes.md)のURLで `/get` を確認する。
+Knative既定のスケールゼロ確認は `ksvc/hello-default` と
+`serving.knative.dev/service=hello-default` を使う。
+既定ルートを変更した場合は新しいホスト・URLで確認し、明示ルートの公開先が変わらないことも確認する。

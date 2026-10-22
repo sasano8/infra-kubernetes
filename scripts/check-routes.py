@@ -52,6 +52,10 @@ def main():
         ("knative-buffer", "hello-test-ksvc." + config["knative_domain"], "hello"),
         ("knative-nobuffer", "hello-nobuffer-test-ksvc." + config["knative_nobuffer_domain"], "hello-nobuffer"),
     ]
+    cases.extend([
+        ("standard-default", "hello-default-test-ssvc." + config[infra.resolve_route(config, "standard")], None),
+        ("knative-default", "hello-default-test-ksvc." + config[infra.resolve_route(config, "knative")], "hello-default"),
+    ])
     command = shlex.split(args.kubectl)
     if not command:
         parser.error("kubectl command must not be empty")
@@ -153,10 +157,10 @@ def main():
             except (OSError, ValueError, KeyError, http.client.HTTPException,
                     RuntimeError, subprocess.SubprocessError) as exc:
                 print(f"FAIL: {name}-scale-zero-recovery: {exc}", flush=True)
-        if len(knative_ok) < 2:
+        if len(knative_ok) < 3:
             print("SKIP: 初回リクエストが失敗した Knative の復帰確認", flush=True)
-        print(f"\n結果: {passed}/6 成功（4経路 / Knative 2サービスのスケールゼロ復帰）。")
-        return 0 if passed == 6 else 1
+        print(f"\n結果: {passed}/9 成功（明示4経路・既定2経路 / Knative 3サービスのスケールゼロ復帰）。")
+        return 0 if passed == 9 else 1
     finally:
         # Stop only the process this script started, even on failure or Ctrl-C.
         if process.poll() is None:

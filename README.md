@@ -222,3 +222,12 @@ KnativeアプリはService本体の `metadata.labels` に
 両方とも有効なルートが必須で、既定ルートの無効化は未対応。
 明示指定を省略した場合は設定した既定を使う。既定利用の追加2サンプルと3つのKnativeの復帰を
 含め、確認スクリプトは計9項目を確認する。設定例とURLは [4経路の構成](docs/four-routes.md)を参照。
+
+## Google Workspace SSO（任意）
+
+構築時に `sso.enabled` で選択する。ルートのbrowser／api／publicポリシーに従い、
+Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
+有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。
+設定・Google callback登録・検証の制約は [SSO手順](docs/sso.md)を参照。
+SSO有効時の既存疎通スクリプトは `--internal standard`／`--internal knative` の内部診断用とし、
+外部確認は `bin/infra test-plan --format markdown` で生成する。実Googleログイン・実クラスタ検証は未実施。

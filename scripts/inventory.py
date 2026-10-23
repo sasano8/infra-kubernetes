@@ -37,7 +37,7 @@ def label(resource):
 
 
 def selected(path):
-    return (path in ("scripts/infra.py", "scripts/tls.py") or
+    return (path in ("scripts/infra.py", "scripts/tls.py", "scripts/sso.py") or
             (path.startswith(("apps/", "plugins/kong/manifests/", "manifests/"))
              and path.endswith((".yaml", ".yml", ".yaml.tmpl", ".yml.tmpl"))))
 
@@ -82,6 +82,11 @@ def dictionary(node):
 def python_identities(text, path):
     tree = ast.parse(text, filename=path)
     resources = []
+    if path == "scripts/sso.py":
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RESOURCE_IDENTITIES" for t in node.targets):
+                return [identity(*entry) for entry in ast.literal_eval(node.value)]
+        raise ValueError("SSOリソース一覧がありません")
     if path == "scripts/infra.py":
         for node in tree.body:
             if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "NAMESPACES" for t in node.targets):

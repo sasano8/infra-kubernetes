@@ -4,6 +4,7 @@ metadata:
   name: standard
   namespace: test
   annotations:
+$standard_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$standard_buffering"
@@ -44,6 +45,7 @@ metadata:
   name: hello
   namespace: test
   annotations:
+$knative_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$knative_buffering"
@@ -68,6 +70,7 @@ metadata:
   name: standard-nobuffer
   namespace: test
   annotations:
+$standard_nobuffer_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$standard_nobuffer_buffering"
@@ -92,6 +95,7 @@ metadata:
   name: hello-nobuffer
   namespace: test
   annotations:
+$knative_nobuffer_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$knative_nobuffer_buffering"
@@ -116,6 +120,7 @@ metadata:
   name: standard-default
   namespace: test
   annotations:
+$standard_default_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$standard_default_buffering"
@@ -140,6 +145,7 @@ metadata:
   name: hello-default
   namespace: test
   annotations:
+$knative_default_auth
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
     konghq.com/request-buffering: "$knative_default_buffering"

@@ -17,6 +17,7 @@ import tempfile
 import time
 import tls
 import inventory
+import sso
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
@@ -85,7 +86,7 @@ def load(path):
     c.setdefault("base_domain", None)
     required = {"mode", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls", "default_routes"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso"}
     if missing or unknown:
         errors = []
         if missing:
@@ -126,6 +127,7 @@ def load(path):
     for kind in DEFAULT_ROUTES:
         resolve_route(c, kind)
     tls.normalize(c)
+    sso.normalize(c, PUBLIC_ROUTES)
     return c
 
 
@@ -152,6 +154,16 @@ def configure(path):
         answer = input(f"{kind} の既定公開ルート ({', '.join(choices)}) [{c['default_routes'][kind]}]: ").strip()
         if answer:
             c["default_routes"][kind] = answer
+    enabled = input("SSO を有効にしますか true / false [false]: ").strip()
+    if enabled not in ("", "true", "false"):
+        raise ValueError("SSO は true / false を指定してください")
+    c["sso"] = {"enabled": enabled == "true"}
+    if c["sso"]["enabled"]:
+        c["tls"]["enabled"] = True
+        for field, prompt in (("email", "ACMEメール"), ("cloudflare_zone", "Cloudflareゾーン")):
+            c["tls"][field] = input(prompt + ": ").strip()
+        c["sso"]["email_domain"] = input("SSO_EMAIL_DOMAIN（許可メールドメイン）: ").strip()
+        c["sso"]["secret_file"] = input("SSO Secret JSONファイル（既存Secretなら空欄）: ").strip()
     # Validate before creating the destination.
     with tempfile.TemporaryDirectory() as tmp:
         candidate = Path(tmp) / "config.json"
@@ -201,6 +213,22 @@ def render(c, output):
         values[kind + "_default_tls"] = (
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
+    auth = sso.render(c, output, PUBLIC_ROUTES)
+    for route in PUBLIC_ROUTES:
+        values[route.removesuffix("_domain") + "_auth"] = auth.get(route, '    konghq.com/plugins: ""')
+    for kind in ("standard", "knative"):
+        values[kind + "_default_auth"] = auth.get(resolve_route(c, kind), '    konghq.com/plugins: ""')
+    enabled = c["sso"]["enabled"]
+    values["sso_env"] = ('            - {name: KONG_PLUGINS, value: "bundled,session-auth"}\n'
+                         '            - {name: KONG_LUA_PACKAGE_PATH, value: "/opt/?.lua;;"}' if enabled else "")
+    values["proxy_access_log"] = "/dev/stdout sso_safe" if enabled else "/dev/stdout"
+    if enabled:
+        values["sso_env"] += '\n            - {name: KONG_NGINX_HTTP_LOG_FORMAT, value: "sso_safe \'$remote_addr $request_method $uri $status\'"}'
+    values["sso_mount"] = ('          volumeMounts:\n            - {name: session-auth-code, mountPath: /opt/kong/plugins/session-auth, readOnly: true}' if enabled else "")
+    values["sso_volume"] = ('        - name: session-auth-code\n          configMap: {name: session-auth-code}' if enabled else "")
+    # Updating plugin files must roll Kong so Lua module caches cannot retain old code.
+    plugin_hash = hashlib.sha256("".join(p.read_text() for p in sorted((ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua"))).encode()).hexdigest()
+    values["sso_pod_annotation"] = ('      annotations: {infra.sasano8.dev/sso-code: "' + plugin_hash + '"}' if enabled else "")
     for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
@@ -455,6 +483,7 @@ def deploy(cluster, c, output):
     network = cluster.get("configmap/config-network", "-n", "knative-serving")
     if network.get("data", {}).get("domain-template") != TEMPLATE:
         raise ValueError("既存 domain-template がこの構成の前提と異なります。自動変更しません")
+    sso.preflight(c, cluster)
     render(c, output)
     domain_file = output / "knative-config/domain.yaml"
     if c["mode"] == "new-host":
@@ -483,6 +512,7 @@ def deploy(cluster, c, output):
     legacy_ports = [p["hostPort"] for container in legacy_gateway.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
                     for p in container.get("ports", []) if p.get("hostPort")] if legacy_gateway.get("spec", {}).get("replicas", 1) != 0 else []
     tls.prepare(cluster, c, output, fetch, apply_admission_config, legacy_ports)
+    sso.install(cluster, c, output)
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
     for name, domain in (("hello", c["knative_domain"]),
@@ -510,9 +540,14 @@ def deploy(cluster, c, output):
                             capture_output=True, text=True).stdout.split()
         if pods:
             cluster.call("wait", *pods, "-n", "sas47-kong", "--for=delete", "--timeout=180s")
-    cluster.call("apply", "-f", output / "routes.yaml")
+    if not c["sso"]["enabled"]:
+        # Remove Plugin references before unloading Lua; otherwise DB-less readiness can deadlock.
+        cluster.call("apply", "-f", output / "routes.yaml")
+        sso.cleanup_disabled(cluster, c)
     cluster.call("apply", "-f", output / "kong.yaml")
     cluster.call("rollout", "status", "deployment/kong", "-n", "kong-system", "--timeout=300s")
+    if c["sso"]["enabled"]:
+        cluster.call("apply", "-f", output / "routes.yaml")
     cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
     inventory.record(cluster, c)
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
@@ -592,11 +627,12 @@ def remove(cluster):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan"))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
     parser.add_argument("--require-https", action="store_true", help="TLS が無効・未設定なら停止する")
+    parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
     if args.action == "configure":
         configure(args.config)
@@ -610,6 +646,9 @@ def main():
     if args.action == "render":
         render(c, args.output)
         return
+    if args.action == "test-plan":
+        print(sso.test_plan(c, args.format))
+        return
     cluster = Cluster(args.kubectl)
     if c["tls"]["enabled"]:
         credential_cluster = cluster
@@ -618,6 +657,10 @@ def main():
             credential_cluster = (Cluster("/usr/local/bin/k0s kubectl")
                                   if Path("/usr/local/bin/k0s").is_file() else None)
         tls.preflight(c, credential_cluster)
+    credential_cluster = cluster
+    if c["mode"] == "new-host" and args.kubectl == "kubectl":
+        credential_cluster = (Cluster("/usr/local/bin/k0s kubectl") if Path("/usr/local/bin/k0s").is_file() else None)
+    sso.preflight(c, credential_cluster)
     print("設定検証: OK", flush=True)
     if c["tls"]["enabled"]:
         print(f"TLS: 有効 / Cloudflare zone: {c['tls']['cloudflare_zone']} / "

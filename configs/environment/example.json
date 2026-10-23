@@ -20,6 +20,8 @@
     "knative": "knative_domain"
   },
   "sso": {
-    "enabled": false
+    "enabled": false,
+    "id_token_routes": [],
+    "id_token_header": "X-Forwarded-Id-Token"
   }
 }

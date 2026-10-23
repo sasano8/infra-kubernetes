@@ -99,6 +99,8 @@ local function setup()
       request = {
         clear_header = function(n)
           cleared[n] = true
+          request.headers[n:lower()] = nil
+          outgoing[n] = nil
         end,
         set_header = function(n, v)
           outgoing[n] = v
@@ -130,6 +132,8 @@ local function setup()
   conf.mode = 'browser'
   conf.https_port = 443
   conf.api_paths = {'/api', '/upload'}
+  conf.forward_id_token = false
+  conf.id_token_header = 'X-Forwarded-Id-Token'
 end
 
 local function effective_upstream_headers()
@@ -450,6 +454,203 @@ test('browser redirect preserves the configured HTTPS port', function()
   handler:access(conf)
 
   assert(result.status == 302 and result.headers.Location:find('app.example.test%3A9443', 1, true))
+end)
+
+-- These JWT-shaped fixtures are not signed tokens. Google verification belongs
+-- to oauth2-proxy and the receiving application, not this forwarding unit test.
+local id_token = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.c2lnbmF0dXJl'
+
+test('ID token forwarding is disabled by default and strips spoofed input', function()
+  request.headers['x-forwarded-id-token'] = 'spoofed'
+  response.headers.Authorization = 'Bearer ' .. id_token
+
+  handler:access(conf)
+
+  assert(result == nil and calls == 1)
+  assert(cleared['X-Forwarded-Id-Token'])
+  assert(request.headers['x-forwarded-id-token'] == nil)
+  assert(outgoing['X-Forwarded-Id-Token'] == nil)
+end)
+
+test('authenticated ID token is forwarded without replacing API Authorization', function()
+  conf.forward_id_token = true
+  request.headers.authorization = 'Bearer application-api-token'
+  request.headers['x-forwarded-id-token'] = {'spoofed-1', 'spoofed-2'}
+  response.headers.Authorization = 'Bearer ' .. id_token
+
+  handler:access(conf)
+  handler:header_filter(conf)
+
+  assert(result == nil and outgoing['X-Forwarded-Id-Token'] == id_token)
+  assert(request.headers['x-forwarded-id-token'] == nil)
+  assert(request.headers.authorization == 'Bearer application-api-token')
+  assert(outgoing.Authorization == nil and not cleared.Authorization)
+  assert(sent.headers.Authorization == nil and sent.headers['X-Forwarded-Id-Token'] == nil)
+  assert(response_headers['x-forwarded-id-token'] == nil and response_headers.authorization == nil)
+end)
+
+test('configured ID token header replaces spoofed values and strips the default name', function()
+  conf.forward_id_token = true
+  conf.id_token_header = 'X-SSO-Identity'
+  request.headers['x-sso-identity'] = {'spoofed-1', 'spoofed-2'}
+  request.headers['x-forwarded-id-token'] = 'spoofed-default'
+  response.headers.Authorization = 'Bearer ' .. id_token
+
+  handler:access(conf)
+
+  assert(result == nil and outgoing['X-SSO-Identity'] == id_token)
+  assert(cleared['X-SSO-Identity'] and cleared['X-Forwarded-Id-Token'])
+  assert(request.headers['x-sso-identity'] == nil and request.headers['x-forwarded-id-token'] == nil)
+  assert(outgoing['X-Forwarded-Id-Token'] == nil)
+end)
+
+test('disabled route also strips a custom ID token header', function()
+  conf.id_token_header = 'X-SSO-Identity'
+  request.headers['x-sso-identity'] = 'spoofed'
+  response.headers.Authorization = 'Bearer ' .. id_token
+
+  handler:access(conf)
+
+  assert(result == nil and cleared['X-SSO-Identity'])
+  assert(request.headers['x-sso-identity'] == nil and outgoing['X-SSO-Identity'] == nil)
+end)
+
+for _, mode in ipairs({'public', 'oauth'}) do
+  test(mode .. ' endpoint never forwards an ID token', function()
+    conf.mode = mode
+    conf.forward_id_token = true
+    conf.id_token_header = 'X-SSO-Identity'
+    if mode == 'oauth' then
+      request.path = '/oauth2/callback'
+    end
+    request.headers['x-sso-identity'] = 'spoofed'
+    request.headers['x-forwarded-id-token'] = 'spoofed-default'
+    response.headers.Authorization = 'Bearer ' .. id_token
+
+    handler:access(conf)
+
+    assert(result == nil and calls == 0)
+    assert(request.headers['x-sso-identity'] == nil and request.headers['x-forwarded-id-token'] == nil)
+    assert(outgoing['X-SSO-Identity'] == nil and outgoing['X-Forwarded-Id-Token'] == nil)
+  end)
+end
+
+test('missing required ID token fails closed after successful authentication', function()
+  conf.forward_id_token = true
+  request.headers.authorization = 'Bearer ' .. id_token
+  response.headers['X-Auth-Request-Access-Token'] = id_token
+  response.headers['X-Forwarded-Access-Token'] = id_token
+
+  handler:access(conf)
+
+  assert(result and result.status == 503)
+  assert(outgoing['X-Forwarded-Id-Token'] == nil)
+end)
+
+for index, authorization in ipairs({
+  false,
+  123,
+  '',
+  id_token,
+  'Basic ' .. id_token,
+  'Bearer ',
+  'Bearer opaque-access-token',
+  'Bearer ' .. id_token .. '\r\nInjected: true',
+  'Bearer ' .. id_token .. ', Bearer ' .. id_token,
+  {'Bearer ' .. id_token, 'Bearer ' .. id_token},
+  {'Bearer ' .. id_token}
+}) do
+  test('malformed or ambiguous required ID token fails closed: case ' .. index, function()
+    conf.forward_id_token = true
+    response.headers.Authorization = authorization
+
+    handler:access(conf)
+
+    assert(result and result.status == 503)
+    assert(outgoing['X-Forwarded-Id-Token'] == nil)
+  end)
+end
+
+for _, status in ipairs({401, 403, 500}) do
+  test('auth status ' .. status .. ' never forwards an ID token', function()
+    conf.forward_id_token = true
+    request.method = 'POST'
+    response.status = status
+    response.headers.Authorization = 'Bearer ' .. id_token
+
+    handler:access(conf)
+
+    assert(result and result.status == (status == 500 and 503 or status))
+    assert(outgoing['X-Forwarded-Id-Token'] == nil)
+  end)
+end
+
+test('foreign identity never receives an ID token even with a successful auth response', function()
+  conf.forward_id_token = true
+  response.headers.Authorization = 'Bearer ' .. id_token
+  response.headers['X-Auth-Request-Email'] = 'user@other.test'
+
+  handler:access(conf)
+
+  assert(result.status == 403 and outgoing['X-Forwarded-Id-Token'] == nil)
+end)
+
+test('auth outage strips spoofed ID tokens and fails closed', function()
+  conf.forward_id_token = true
+  request.headers['x-forwarded-id-token'] = 'spoofed'
+  response = nil
+
+  handler:access(conf)
+
+  assert(result.status == 503 and outgoing['X-Forwarded-Id-Token'] == nil)
+  assert(request.headers['x-forwarded-id-token'] == nil)
+end)
+
+test('missing identity never forwards an ID token', function()
+  conf.forward_id_token = true
+  response.headers.Authorization = 'Bearer ' .. id_token
+  response.headers['X-Auth-Request-User'] = nil
+
+  handler:access(conf)
+
+  assert(result.status == 503 and outgoing['X-Forwarded-Id-Token'] == nil)
+end)
+
+test('refreshed ID token and split cookies are forwarded to their separate destinations', function()
+  conf.forward_id_token = true
+  response.headers.Authorization = 'Bearer ' .. id_token
+  response.headers['Set-Cookie'] = {'__Host-infra_sso_0=refresh', '__Host-infra_sso_1=refresh'}
+
+  handler:access(conf)
+  handler:header_filter(conf)
+
+  assert(result == nil and outgoing['X-Forwarded-Id-Token'] == id_token)
+  assert(#response_headers['set-cookie'] == 2)
+  assert(response_headers['x-forwarded-id-token'] == nil and response_headers.authorization == nil)
+end)
+
+test('plugin schema rejects reserved and malformed ID token headers', function()
+  package.preload['kong.db.schema.typedefs'] = function()
+    return {no_consumer = {}, protocols_http = {}}
+  end
+  local schema = dofile('plugins/sso/kong/plugins/session-auth/schema.lua')
+  local validator
+  for _, field in ipairs(schema.fields[3].config.fields) do
+    if field.id_token_header then
+      validator = field.id_token_header.custom_validator
+    end
+  end
+  assert(type(validator) == 'function', 'ID token header validator missing from plugin schema')
+  for _, header in ipairs({
+    'Authorization', 'Cookie', 'Host', 'X Token', 'X_Token', 'X-Token\r\nHost',
+    'X-Forwarded-Host', 'x-forwarded-proto', 'X-Auth-Request-Email',
+    'X-Kong-Request-Debug', 'X-Original-URI', 'X-Real-IP'
+  }) do
+    assert(not validator(header), 'reserved or malformed header accepted')
+  end
+  for _, header in ipairs({'X-Forwarded-Id-Token', 'x-forwarded-id-token', 'X-SSO-ID-Token', 'x-company-identity'}) do
+    assert(validator(header), 'dedicated ID token header rejected')
+  end
 end)
 
 print('Lua handler tests: ' .. count .. ' passed')

@@ -11,7 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
 SECRET = "google-sso"
 KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET")
-DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {}, "api_paths": ["/api", "/upload"]}
+ID_TOKEN_HEADER = "X-Forwarded-Id-Token"
+DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {}, "api_paths": ["/api", "/upload"],
+            "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER}
+
+
+def valid_id_token_header(header):
+    if not isinstance(header, str) or not re.fullmatch(r"[Xx]-[A-Za-z0-9][A-Za-z0-9-]*", header):
+        return False
+    name = header.lower()
+    return name == ID_TOKEN_HEADER.lower() or (
+        name != "x-real-ip" and not name.startswith(("x-forwarded-", "x-auth-request-", "x-kong-", "x-original-")))
 
 
 def normalize(c, routes):
@@ -24,6 +34,15 @@ def normalize(c, routes):
         raise ValueError("sso.enabled は true / false")
     if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("browser", "api", "public") for k, v in s["routes"].items()):
         raise ValueError("sso.routes はルートIDと browser / api / public の対応を指定してください")
+    if not valid_id_token_header(s["id_token_header"]):
+        raise ValueError("sso.id_token_header はX-で始まる専用ヘッダー名を指定してください（転送・identity・Kong制御ヘッダーは予約済み）")
+    token_routes = s["id_token_routes"]
+    if (not isinstance(token_routes, list)
+            or any(not isinstance(route, str) or route not in routes for route in token_routes)
+            or len(set(token_routes)) != len(token_routes)):
+        raise ValueError("sso.id_token_routes は重複のない公開ルートIDの配列を指定してください")
+    if any(s["routes"].get(route, "browser") == "public" for route in token_routes):
+        raise ValueError("sso.id_token_routes にpublicルートは指定できません")
     if not isinstance(s["secret_file"], str):
         raise ValueError("sso.secret_file はファイルパスです")
     if not isinstance(s["api_paths"], list) or any(not isinstance(p, str) or not re.fullmatch(r"/[a-zA-Z0-9_/-]+", p) or p.endswith("/") for p in s["api_paths"]):
@@ -104,14 +123,15 @@ def render(c, output, route_ids):
     # Public forwarding headers must come from Kong, not client-supplied X-Forwarded-*.
     files = {p.name: p.read_text() for p in (ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua")}
     items = [resource("v1", "ConfigMap", "session-auth-code", "kong-system", data=files)]
-    def plugin(name, mode, allowed):
+    def plugin(name, mode, allowed, forward_id_token=False):
         return resource("configuration.konghq.com/v1", "KongPlugin", name, "test", plugin="session-auth",
                         config={"mode": mode, "hosts": allowed, "email_domain": s["email_domain"],
-                                "https_port": port, "api_paths": s["api_paths"]})
+                                "https_port": port, "api_paths": s["api_paths"],
+                                "forward_id_token": forward_id_token, "id_token_header": s["id_token_header"]})
     annotations = {}
     for route in route_ids:
         name = "sso-" + route.replace("_", "-")
-        items.append(plugin(name, s["routes"].get(route, "browser"), all_hosts))
+        items.append(plugin(name, s["routes"].get(route, "browser"), all_hosts, route in s["id_token_routes"]))
         annotations[route] = '    konghq.com/plugins: "' + name + '"'
     items.append(plugin("sso-oauth-endpoints", "oauth", all_hosts))
     args = ["--provider=google", "--http-address=0.0.0.0:4180", "--upstream=static://202",
@@ -120,6 +140,7 @@ def render(c, output, route_ids):
             "--cookie-samesite=lax", "--cookie-expire=8h", "--cookie-refresh=1h", "--skip-provider-button=true",
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",
             "--pass-access-token=false", "--pass-authorization-header=false", "--request-logging=false"]
+    args.append("--set-authorization-header=" + str(bool(s["id_token_routes"])).lower())
     args += ["--whitelist-domain=" + h + ("" if port == 443 else ":" + str(port)) for h in all_hosts]
     env = [{"name": name, "valueFrom": {"secretKeyRef": {"name": SECRET, "key": key}}}
            for name, key in zip(("OAUTH2_PROXY_CLIENT_ID", "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET"), KEYS)]

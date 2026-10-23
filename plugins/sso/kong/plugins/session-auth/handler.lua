@@ -1,5 +1,6 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.0.0" }
+local Handler = { PRIORITY = 1500, VERSION = "1.1.0" }
+local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
                    "X-Forwarded-Groups", "X-Forwarded-Access-Token", "X-Auth-Request-Access-Token" }
@@ -16,6 +17,11 @@ function Handler:access(conf)
   if kong.request.get_scheme() ~= "https" then return deny(403) end
   local authority = host .. (conf.https_port == 443 and "" or ":" .. conf.https_port)
   for _, name in ipairs(identity) do kong.service.request.clear_header(name) end
+  -- Strip both names even on public/OAuth routes or when forwarding is disabled.
+  -- A client-supplied ID token must never be mistaken for our auth result.
+  local id_token_header = conf.id_token_header or default_id_token_header
+  kong.service.request.clear_header(default_id_token_header)
+  kong.service.request.clear_header(id_token_header)
   kong.service.request.clear_header("Forwarded")
   kong.service.request.clear_header("X-Auth-Request-Redirect")
   kong.service.request.set_header("X-Forwarded-Proto", "https")
@@ -63,6 +69,15 @@ function Handler:access(conf)
       return deny(503)
     end
     if email:sub(-(#conf.email_domain + 1)):lower() ~= "@" .. conf.email_domain then return deny(403) end
+    if conf.forward_id_token then
+      -- --set-authorization-header returns the session's Google ID token.
+      -- Do not use the client's Authorization or OAuth access-token headers.
+      local authorization = res.headers["Authorization"]
+      local token = type(authorization) == "string"
+                    and authorization:match("^Bearer ([A-Za-z0-9_-]+%.[A-Za-z0-9_-]+%.[A-Za-z0-9_-]+)$")
+      if not token then return deny(503) end
+      kong.service.request.set_header(id_token_header, token)
+    end
     kong.service.request.set_header("X-Auth-Request-User", user)
     kong.service.request.set_header("X-Auth-Request-Email", email)
     return

@@ -231,3 +231,7 @@ Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer�
 設定・Google callback登録・検証の制約は [SSO手順](docs/sso.md)を参照。
 SSO有効時の既存疎通スクリプトは `--internal standard`／`--internal knative` の内部診断用とし、
 外部確認は `bin/infra test-plan --format markdown` で生成する。実Googleログイン・実クラスタ検証は未実施。
+
+Google IDトークンをアプリ自身で検証する場合は、`sso.id_token_routes` に対象の公開ルートを指定する。
+`sso.id_token_header`（既定 `X-Forwarded-Id-Token`）で渡し、アプリ側の `SSO_ID_TOKEN_HEADER` と揃える。
+既定は転送無効。設定例と受信アプリ側の条件は [SSO手順](docs/sso.md#idトークンの転送)を参照。

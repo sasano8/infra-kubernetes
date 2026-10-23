@@ -40,7 +40,9 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
     "knative_domain": "browser",
     "knative_nobuffer_domain": "browser"
   },
-  "api_paths": ["/api", "/upload"]
+  "api_paths": ["/api", "/upload"],
+  "id_token_routes": [],
+  "id_token_header": "X-Forwarded-Id-Token"
 }
 ```
 
@@ -84,6 +86,56 @@ Cookieは `__Host-infra_sso`、Secure、HttpOnly、SameSite=Lax、Path=/、有�
 更新間隔1時間。親ドメイン共有はしない。Hostごとにcallbackとセッションが成立する。
 Google側のログイン済みセッションは利用され得るが、全Hostの同時ログイン／ログアウトは保証しない。
 ログアウトは対象Hostの `/oauth2/sign_out`。Googleアカウント全体のログアウトではない。
+
+## IDトークンの転送
+
+Google IDトークンをアプリ自身で検証する場合は、転送する公開ルートを明示する。
+既定は `id_token_routes: []` で転送しない。例えばKnative nobufferルートだけを対象にする場合、
+既存environment JSONのsso設定へ次の項目を追加する。
+
+```json
+"id_token_routes": ["knative_nobuffer_domain"],
+"id_token_header": "X-Forwarded-Id-Token"
+```
+
+指定できるのは通常／Knativeの4つの公開ルートID。browser／apiルートが対象で、
+publicルートの指定は設定エラーにする。既定ルートを使うアプリにも選択先の設定を適用する。
+転送の単位は公開ルートであり、そのルートの対象アプリすべてへ渡す。
+認証、buffering、APIの未認証応答の設定は維持する。
+
+oauth2-proxy v7.15.5の `--set-authorization-header=true` を使い、内部の `/oauth2/auth` 応答から
+`Authorization: Bearer <Google ID token>` を受け取る。Kongは認証・メールドメインの許可確認後、
+Bearer接頭辞を外して専用ヘッダーへ付与する。Google API用アクセストークンは渡さない。
+選択したルートでIDトークンが欠落・複数値・不正形式なら503としてアプリへ転送しない。
+署名などの暗号学的検証をKongで追加する処理ではなく、信頼する認証サービスの結果を受け渡す機能。
+
+クライアント由来の既定ヘッダーと設定したヘッダーは先に除去する。
+SSO有効時は非対象ルート、publicルート、OAuth入口でも除去し、認証結果の偽装を防ぐ。
+アプリ独自のAPI認証に使うリクエストの `Authorization` は上書きしない。
+認証問い合わせへクライアントのAuthorizationや本文を送らず、認証サービスのAuthorizationを
+クライアントへのレスポンスにコピーする処理も追加しない。
+
+ヘッダー名は既定の `X-Forwarded-Id-Token` または `X-SSO-ID-Token` 等の専用名を使う。
+`X-`で始まる英数字・ハイフンを許可し、既定名を除く `X-Forwarded-*`、`X-Auth-Request-*`、
+`X-Kong-*`、`X-Original-*`、`X-Real-IP` は予約済みとして拒否する。
+
+[app-authorization-demo](https://github.com/sasano8/app-authorization-demo) 側は次を設定する。
+
+```text
+SSO_ID_TOKEN_HEADER=X-Forwarded-Id-Token
+SSO_GOOGLE_CLIENT_ID=<このSSOで使用するGoogle OAuthクライアントID>
+APP_ALLOW_LOCAL_LOGIN=false
+```
+
+アプリ独自の署名鍵等の必須設定も別途用意する。受信アプリでGoogle署名・issuer・audience・期限を
+検証し、ヘッダーが存在するだけでログイン済みとは判断しない。ヘッダー名を変える場合は
+送信側のid_token_headerと受信側のSSO_ID_TOKEN_HEADERを揃える。
+Google公開鍵取得のためのHTTPS接続もアプリ側に必要。
+
+トークンはアプリログへ出力しない。go-httpbinの `/get` は受信ヘッダーをレスポンスへ含めるため、
+実トークンを転送するルートで使うとトークンが応答にも含まれる。受信・検証結果だけを返すアプリで確認する。
+実Kong／Google／受信アプリの結合検証は未実施。共通callback・共有Cookieへの変更も未実装で、
+この転送設定によって別ホストのセッションが自動共有されるわけではない。
 
 ## Secret供給
 

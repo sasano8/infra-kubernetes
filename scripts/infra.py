@@ -34,6 +34,29 @@ MANIFESTS = {
 }
 
 
+PUBLIC_ROUTES = {
+    "standard_domain": {"kind": "standard", "buffering": True, "secret": "standard-tls"},
+    "standard_nobuffer_domain": {"kind": "standard", "buffering": False, "secret": "standard-nobuffer-tls"},
+    "knative_domain": {"kind": "knative", "buffering": True, "secret": "knative-wildcard-tls"},
+    "knative_nobuffer_domain": {"kind": "knative", "buffering": False, "secret": "knative-nobuffer-tls"},
+}
+DEFAULT_ROUTES = {"standard": "standard_domain", "knative": "knative_domain"}
+
+
+def resolve_route(config, kind, explicit=None):
+    route = config["default_routes"][kind] if explicit is None else explicit
+    if not isinstance(route, str) or route not in PUBLIC_ROUTES or PUBLIC_ROUTES[route]["kind"] != kind:
+        raise ValueError(f"{kind}: 有効な同種別の公開ルートIDを指定してください（無効化は未対応）")
+    return route
+
+
+def knative_domain_data(config):
+    default = resolve_route(config, "knative")
+    return {config[route]: ("" if route == default else
+            "selector:\n  infra.sasano8.dev/route: " + route + "\n")
+            for route in PUBLIC_ROUTES if PUBLIC_ROUTES[route]["kind"] == "knative"}
+
+
 def run(args, **kwargs):
     print("+ " + shlex.join(map(str, args)), flush=True)
     return subprocess.run(list(map(str, args)), check=True, **kwargs)
@@ -60,9 +83,9 @@ def load(path):
             raise ValueError("standard_host と standard_domain は同時に指定できません")
         c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
-    required = {"mode", "knative_domain", "standard_domain", "kourier_service", "node_port"}
+    required = {"mode", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes"}
     if missing or unknown:
         errors = []
         if missing:
@@ -72,7 +95,7 @@ def load(path):
         raise ValueError(" / ".join(errors))
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
-    for key in ("base_domain", "knative_domain", "standard_domain", "kourier_service"):
+    for key in ("base_domain", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service"):
         value = c[key]
         if key == "base_domain" and value is None:
             continue
@@ -81,15 +104,27 @@ def load(path):
             for x in value.split(".")
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    host = "hello-test-ksvc." + c["knative_domain"]
-    standard_host = "hello-test-ssvc." + c["standard_domain"]
-    if max(len(host), len(standard_host)) > 253 or host == standard_host:
-        raise ValueError("Knative と通常 Service のホスト名を区別してください（最大253文字）")
+    domains = [c[key] for key in ("standard_domain", "knative_domain",
+                                 "standard_nobuffer_domain", "knative_nobuffer_domain")]
+    if len(set(domains)) != 4:
+        raise ValueError("buffer / nobuffer の4ドメインをそれぞれ区別してください")
+    for key, prefix in (("standard_domain", "hello-test-ssvc."),
+                        ("standard_nobuffer_domain", "hello-test-ssvc."),
+                        ("knative_domain", "hello-test-ksvc."),
+                        ("knative_nobuffer_domain", "hello-nobuffer-test-ksvc.")):
+        if len(max((prefix, "hello-default-test-ksvc." if key.startswith("knative") else "hello-default-test-ssvc."), key=len) + c[key]) > 253:
+            raise ValueError(f"{key}: 公開ホスト名が253文字を超えます")
     port = c["node_port"]
     if port is not None and (type(port) is not int or not 30000 <= port <= 32767):
         raise ValueError("node_port は null または 30000〜32767")
     if c["mode"] == "new-host" and c["kourier_service"] != "kourier.kourier-system.svc.cluster.local":
         raise ValueError("new-host の Kourier Service は kourier.kourier-system.svc.cluster.local 固定です")
+    supplied = c.get("default_routes", {})
+    if not isinstance(supplied, dict) or set(supplied) - set(DEFAULT_ROUTES):
+        raise ValueError("default_routes は standard / knative のルートIDを指定するオブジェクトです")
+    c["default_routes"] = dict(DEFAULT_ROUTES, **supplied)
+    for kind in DEFAULT_ROUTES:
+        resolve_route(c, kind)
     tls.normalize(c)
     return c
 
@@ -103,6 +138,8 @@ def configure(path):
         "base_domain": "ベースドメイン（参照情報。各経路は個別指定）",
         "knative_domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
         "standard_domain": "通常経路のベースドメイン（hello-test-ssvc を付ける）",
+        "standard_nobuffer_domain": "通常 nobuffer のベースドメイン",
+        "knative_nobuffer_domain": "Knative nobuffer のベースドメイン",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
     }
@@ -110,6 +147,11 @@ def configure(path):
         answer = input(f"{prompt} [{c[key] if c[key] is not None else 'なし'}]: ").strip()
         if answer:
             c[key] = int(answer) if key == "node_port" else answer
+    for kind in DEFAULT_ROUTES:
+        choices = [route for route in PUBLIC_ROUTES if PUBLIC_ROUTES[route]["kind"] == kind]
+        answer = input(f"{kind} の既定公開ルート ({', '.join(choices)}) [{c['default_routes'][kind]}]: ").strip()
+        if answer:
+            c["default_routes"][kind] = answer
     # Validate before creating the destination.
     with tempfile.TemporaryDirectory() as tmp:
         candidate = Path(tmp) / "config.json"
@@ -124,7 +166,9 @@ def configure(path):
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
     values = dict(c, knative_host="hello-test-ksvc." + c["knative_domain"],
-                  standard_host="hello-test-ssvc." + c["standard_domain"])
+                  standard_host="hello-test-ssvc." + c["standard_domain"],
+                  standard_nobuffer_host="hello-test-ssvc." + c["standard_nobuffer_domain"],
+                  knative_nobuffer_host="hello-nobuffer-test-ksvc." + c["knative_nobuffer_domain"])
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
@@ -137,6 +181,26 @@ def render(c, output):
         knative_tls=(f"  tls:\n    - hosts: [{values['knative_host']}]\n      secretName: knative-wildcard-tls"
                      if c["tls"]["enabled"] else ""),
     )
+    for route in ("standard_nobuffer", "knative_nobuffer"):
+        secret = route.replace("_", "-") + "-tls"
+        values[route + "_tls"] = (f"  tls:\n    - hosts: [{values[route + '_host']}]\n      secretName: {secret}"
+                                 if c["tls"]["enabled"] else "")
+    for route, definition in PUBLIC_ROUTES.items():
+        prefix = route.removesuffix("_domain")
+        values[prefix + "_buffering"] = str(definition["buffering"]).lower()
+    domains = knative_domain_data(c)
+    values["knative_domain_entries"] = "\n".join(
+        "  " + json.dumps(domain) + ": " + json.dumps(selector) for domain, selector in domains.items())
+    for kind, prefix in (("standard", "hello-default-test-ssvc."),
+                         ("knative", "hello-default-test-ksvc.")):
+        route = resolve_route(c, kind)
+        definition = PUBLIC_ROUTES[route]
+        host = prefix + c[route]
+        values[kind + "_default_host"] = host
+        values[kind + "_default_buffering"] = str(definition["buffering"]).lower()
+        values[kind + "_default_tls"] = (
+            f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
+            if c["tls"]["enabled"] else "")
     for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
@@ -391,6 +455,14 @@ def deploy(cluster, c, output):
     network = cluster.get("configmap/config-network", "-n", "knative-serving")
     if network.get("data", {}).get("domain-template") != TEMPLATE:
         raise ValueError("既存 domain-template がこの構成の前提と異なります。自動変更しません")
+    render(c, output)
+    domain_file = output / "knative-config/domain.yaml"
+    if c["mode"] == "new-host":
+        cluster.call("apply", "--server-side", "--field-manager=knative-config", "--force-conflicts", "-f", domain_file)
+    else:
+        current = cluster.get("configmap/config-domain", "-n", "knative-serving").get("data", {})
+        if any(current.get(domain) != selector for domain, selector in knative_domain_data(c).items()):
+            raise ValueError("既存クラスタの config-domain を生成された domain.yaml と照合し、管理者が設定してください。自動上書きしません")
     # Reserve namespaces before writing anything inside them. Do not adopt unrelated namespaces.
     missing = []
     for name in NAMESPACES:
@@ -406,7 +478,6 @@ def deploy(cluster, c, output):
         manifest = {"apiVersion": "v1", "kind": "Namespace",
                     "metadata": {"name": name, "labels": OWNER}}
         cluster.call("create", "-f", "-", input=json.dumps(manifest), text=True)
-    render(c, output)
     install_kic_prerequisites(cluster, output)
     legacy_gateway = find_legacy_gateway(cluster)
     legacy_ports = [p["hostPort"] for container in legacy_gateway.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
@@ -414,21 +485,23 @@ def deploy(cluster, c, output):
     tls.prepare(cluster, c, output, fetch, apply_admission_config, legacy_ports)
     cluster.call("apply", "-f", output / "apps.yaml")
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
-    cluster.call("wait", "ksvc/hello", "-n", "test", "--for=condition=Ready", "--timeout=300s")
-    expected = "http://hello-test-ksvc." + c["knative_domain"]
-    deadline = time.monotonic() + 180
-    while True:
-        service = cluster.get("ksvc/hello", "-n", "test", "--request-timeout=10s")
-        status = service.get("status", {})
-        ready = any(x.get("type") == "Ready" and x.get("status") == "True"
-                    for x in status.get("conditions", []))
-        if status.get("url") == expected and ready:
-            break
-        if time.monotonic() >= deadline:
-            raise ValueError(f"Knative URL / Ready が {expected} に更新されませんでした。"
-                             "ドメイン・TLS・namespace selector を確認してください")
-        print(f"Knative の URL / Ready 更新を待っています: {expected}", flush=True)
-        time.sleep(5)
+    for name, domain in (("hello", c["knative_domain"]),
+                         ("hello-nobuffer", c["knative_nobuffer_domain"]),
+                         ("hello-default", c[resolve_route(c, "knative")])):
+        cluster.call("wait", "ksvc/" + name, "-n", "test", "--for=condition=Ready", "--timeout=300s")
+        expected = "http://" + name + "-test-ksvc." + domain
+        deadline = time.monotonic() + 180
+        while True:
+            service = cluster.get("ksvc/" + name, "-n", "test", "--request-timeout=10s")
+            status = service.get("status", {})
+            ready = any(x.get("type") == "Ready" and x.get("status") == "True"
+                        for x in status.get("conditions", []))
+            if status.get("url") == expected and ready:
+                break
+            if time.monotonic() >= deadline:
+                raise ValueError(f"Knative URL / Ready が {expected} に更新されませんでした。ドメインselectorを確認してください")
+            print(f"Knative の URL / Ready 更新を待っています: {expected}", flush=True)
+            time.sleep(5)
     if legacy_gateway:
         print("旧 Kong を停止し、kong-system へ切り替えます。", flush=True)
         if legacy_gateway.get("spec", {}).get("replicas", 1) != 0:

@@ -48,3 +48,10 @@ TXT レコードの後片付けのため、削除中は cert-manager を起動�
 
 既存環境の互換性のため、旧 owner ラベルも所有確認で受け入れる。
 旧 Kong Namespace は自動削除対象に含めない。新しい入口で確認後に整理する。
+
+4経路構成でも追加リソースは所有する `test` Namespace 内に配置する。
+`hello-nobuffer`、追加Ingress、追加CertificateとTLS Secretも同Namespaceの撤去範囲。
+共有する `knative-serving/config-domain` はremoveで変更・削除しない。
+
+既定ルート確認用の `hello-default` Knative Serviceと `standard-default`／`hello-default`
+Ingressも同じ `test` Namespace内の管理対象。

@@ -19,6 +19,8 @@ Cloudflare の DNS で次の A レコードを **DNS only** として登録し�
 | 名前 | 用途 |
 | --- | --- |
 | `standard.tmp.ys-method-dev.com` | 通常経路ドメインの証明書対象 |
+| `*.standard-nobuffer.tmp.ys-method-dev.com` | 通常nobufferのサブドメイン |
+| `*.knative-nobuffer.tmp.ys-method-dev.com` | Knative nobufferのサブドメイン |
 | `*.standard.tmp.ys-method-dev.com` | `hello-test-ssvc` など通常経路のサブドメイン |
 | `knative.tmp.ys-method-dev.com` | Knative 用ドメインの証明書対象 |
 | `*.knative.tmp.ys-method-dev.com` | 各 Knative Service |
@@ -77,6 +79,8 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
   "base_domain": "tmp.ys-method-dev.com",
   "knative_domain": "knative.tmp.ys-method-dev.com",
   "standard_domain": "standard.tmp.ys-method-dev.com",
+  "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
+  "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -115,12 +119,14 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 標準名の3 Deployment と必要 CRD の準備を確認して使用する。
 対応しない構成なら停止するため、共有環境の cert-manager を勝手に更新しない。
 
-専用 Namespace に名前付き Issuer と2つの Certificate を作成する。
+専用 Namespace に名前付き Issuer と4つの Certificate を作成する。
 
 | Certificate / Secret | 対象 |
 | --- | --- |
 | `test/standard-tls` | `standard_domain` と `*.standard_domain` |
 | `test/knative-wildcard-tls` | `knative_domain` と `*.knative_domain` |
+| `test/standard-nobuffer-tls` | `standard_nobuffer_domain` と `*.standard_nobuffer_domain` |
+| `test/knative-nobuffer-tls` | `knative_nobuffer_domain` と `*.knative_nobuffer_domain` |
 
 証明書の Ready を各最大600秒待ち、その後に TLS Secret を参照する Ingress と Kong を配備する。
 追加の Knative Service も同じ1階層の命名ならワイルドカード証明書を共用できる。
@@ -178,11 +184,11 @@ hostPort 使用時は Kong を Recreate で更新するため、更新中に一�
 外部端末から、証明書を検証したままアクセスする。`-k` は使用しない。
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/
+curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
+curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
 ```
 
-期待する本文は `standard-service` / `knative-service`。
+期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
 ローカルの HTTP とスケールゼロ復帰は従来どおり確認できる。
 
 ```bash
@@ -221,3 +227,6 @@ cert-manager 本体と CRD は他用途に利用され得るため自動削除�
 リソース名の移行では旧 Secret / ACME アカウントを所有確認後に引き継ぐ。
 新しい名前は `cloudflare-api-token` / `cloudflare-letsencrypt` / `letsencrypt-account`。
 詳細は [リソース名と移行](kic.md#用途に基づくリソース名) を参照。
+
+追加2ドメインも同じCloudflareゾーンの範囲内に指定し、DNS onlyでKongへ向ける。
+[4経路の構成](four-routes.md)のDNS一覧を参照。

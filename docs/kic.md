@@ -6,7 +6,7 @@ Pod 内の `http://127.0.0.1:8001` Admin API に設定を反映する。
 Admin API の Service は作成せず、外部インターフェースでも待ち受けない。
 API トークンは KIC コンテナだけにマウントする。
 
-## 現在の2経路
+## 現在の4経路
 
 `plugins/kong/manifests/routes.yaml.tmpl` に次の Ingress を定義する。
 
@@ -14,10 +14,15 @@ API トークンは KIC コンテナだけにマウントする。
 | --- | --- | --- |
 | `test/standard` | `hello-test-ssvc.<standard_domain>` | `hello-ssvc` Service |
 | `test/hello` | `hello-test-ksvc.<knative_domain>` | `kourier-proxy` Service |
+| `test/standard-nobuffer` | `hello-test-ssvc.<standard_nobuffer_domain>` | `hello-ssvc` Service |
+| `test/hello-nobuffer` | `hello-nobuffer-test-ksvc.<knative_nobuffer_domain>` | `kourier-proxy` Service |
+
+既存2ルートはrequest／response buffering有効、nobufferの2ルートは無効。
+Knativeのドメイン選択・既存設定移行は [4経路の構成](four-routes.md)を参照。
 
 `kourier-proxy` は `kourier_service` を指す ExternalName Service。
 Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の Service は変更しない。
-両 Ingress で Host を保持し、Knative の ingress は Kourier のままにする。
+4つの Ingress で Host を保持し、Knative の ingress は Kourier のままにする。
 
 専用 IngressClass は `kong-ingress`。デフォルトの IngressClass には設定しない。
 KIC の監視対象 Namespace は `test` と `kong-system` に限定する。
@@ -106,7 +111,7 @@ sudo k0s kubectl get ingressclass kong-ingress
 ```
 
 KIC 移行後はログ取得時にコンテナ名を指定する。
-この移行の VM 上の動作確認は未実施。既存の確認スクリプトで2経路とスケールゼロ復帰を確認する。
+この移行の VM 上の動作確認は未実施。既存の確認スクリプトで4経路とスケールゼロ復帰を確認する。
 
 ## 撤去
 
@@ -145,3 +150,7 @@ Knative の旧 field-manager はリソース名ではなく Kubernetes の内部
 新規環境では `knative-upstream` を使う。既存環境で旧 ID がログに出ても、
 旧名の Secret や Namespace を新しく作るわけではない。
 他の管理者との競合を一括 `--force-conflicts` で上書きしない。
+
+明示4ルートとは別に、種別ごとの既定ルートを使う `standard-default`／`hello-default`
+Ingressも生成する。公開先ドメイン・buffering・TLSは選択したルート定義を使う。
+[既定ルート設定と追加サンプル](four-routes.md)を参照。

@@ -83,6 +83,8 @@ ssh_authorized_keys:
 
 イメージの既定ユーザーに SSH 公開鍵を登録する。
 プロビジョニング完了後、そのユーザーで SSH 接続して以下の手順を実行する。
+公開鍵の確認、cloud-init での登録、起動済みホストへのシェルでの追加は
+[SSH 公開鍵の登録手順](docs/provisioning/aws-setup.md)を参照。
 
 ## インストール
 

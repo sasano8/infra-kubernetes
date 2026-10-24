@@ -11,10 +11,10 @@ flowchart LR
     Kong --> Kourier --> Knative[Knative Service]
 ```
 
-## 1. DNS と EC2 の準備
+## 1. DNS と公開ポートの準備
 
 Cloudflare の DNS で次の A レコードを **DNS only** として登録し、
-いずれも EC2 のパブリック IP（可能なら Elastic IP）を指定する。
+いずれも Kong ホストの公開 IP（可能なら固定 IP）を指定する。
 
 | 名前 | 用途 |
 | --- | --- |
@@ -30,7 +30,7 @@ SSO や Caddy の本番レコードは変更しない。
 AAAA レコードを残すなら、その IPv6 接続先も Kong に到達できる必要がある。
 DNS only のため、Cloudflare のエッジ証明書・Universal SSL の制約は関係しない。
 
-EC2 セキュリティグループで443/TCPを検証元から許可する。
+ホスト側と外部側のファイアウォールで443/TCPを検証元から許可する。
 証明書発行のための80番受信許可は不要。
 DNS-01 の通信のため、VM と cert-manager の Pod から Cloudflare API・Let's Encrypt への
 HTTPS と、DNS の53番 TCP/UDPでの問い合わせが必要。
@@ -47,7 +47,7 @@ HTTPS と、DNS の53番 TCP/UDPでの問い合わせが必要。
 **Continue to summary → Create Token** で API トークンを発行する。
 Global API Key は使わない。トークンはチャット・Git に貼らない。
 
-EC2 のリポジトリのルートで、生成ディレクトリとファイルの所有者・権限を整え、非表示入力で保存する。
+Kong ホストのリポジトリのルートで、生成ディレクトリとファイルの所有者・権限を整え、非表示入力で保存する。
 
 ```bash
 sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets

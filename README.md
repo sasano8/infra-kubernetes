@@ -70,6 +70,20 @@ flowchart LR
 | Cloudflare / Let's Encrypt | DNS-01 認証用の DNS を管理 / 証明書を発行する外部サービス |
 | 外部端末 | 手元の PC など、公開 DNS・HTTPS を使って Kong に接続する別のマシン |
 
+## ホストのプロビジョニング
+
+cloud-init 対応の Linux イメージを使い、プロビジョニング時に
+[configs/cloud-init.yaml](configs/cloud-init.yaml) を渡す。公開鍵は自分のものに置き換える。
+
+```yaml
+#cloud-config
+ssh_authorized_keys:
+  - ssh-ed25519 AAAA...あなたの公開鍵... user@pc
+```
+
+イメージの既定ユーザーに SSH 公開鍵を登録する。
+プロビジョニング完了後、そのユーザーで SSH 接続して以下の手順を実行する。
+
 ## インストール
 
 Kong ホストで実行する。以下は `dnf` が使える新規の専用 Linux ホスト向けの手順。
@@ -127,9 +141,9 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 )
 ```
 
-[DNS・公開ポートの準備](docs/https.md#1-dns-と-ec2-の準備)を済ませてから、検証・インストールする。
+[DNS・公開ポートの準備](docs/https.md#1-dns-と公開ポートの準備)を済ませてから、検証・インストールする。
 DNS は **DNS only** で Kong ホストに到達する公開 IP に向け、ファイアウォールで443/TCPを許可する。
-クラウド環境ではセキュリティグループなどの受信ルールも設定する。
+ホスト側と外部側のファイアウォールで受信を許可する。
 
 ```bash
 sudo ./bin/infra validate --require-https

@@ -733,6 +733,12 @@ def run_phase(action, cluster, c, output, plugin=None):
         loaded = "infra.sasano8.dev/sso-code" in template.get("metadata", {}).get("annotations", {})
         if current and loaded != c["sso"]["enabled"]:
             raise ValueError("SSO有効/無効の切替はdeploy/upを使用してください")
+        if c["sso"]["enabled"]:
+            files = sorted((ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua"))
+            desired_code = {p.name: p.read_text() for p in files}
+            mounted_code = cluster.get("configmap/session-auth-code", "-n", "kong-system")
+            if mounted_code.get("data") != desired_code:
+                raise ValueError("先にapply-ssoでSSOコードを適用してください")
         if action == "apply-kong":
             apply_kong(cluster, output)
         else:
@@ -740,7 +746,7 @@ def run_phase(action, cluster, c, output, plugin=None):
                 raise ValueError("先にapply-kongとwait-kongを実行してください")
             # Refuse plugin references until the exact mounted Lua version is ready.
             if loaded:
-                expected = hashlib.sha256("".join(p.read_text() for p in sorted((ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua"))).encode()).hexdigest()
+                expected = hashlib.sha256("".join(desired_code.values()).encode()).hexdigest()
                 if template["metadata"]["annotations"].get("infra.sasano8.dev/sso-code") != expected:
                     raise ValueError("先にapply-kongとwait-kongを実行してください")
                 status = current.get("status", {})

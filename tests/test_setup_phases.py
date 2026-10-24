@@ -29,6 +29,8 @@ class SetupPhases(unittest.TestCase):
         self.cluster = Mock()
         self.cluster.call.return_value = SimpleNamespace(stdout='')
         def get(name, *args):
+            if name == 'configmap/session-auth-code':
+                return {'data': {p.name: p.read_text() for p in (ROOT / 'plugins/sso/kong/plugins/session-auth').glob('*.lua')}}
             service = name.removeprefix('ksvc/')
             route = 'knative_nobuffer_domain' if service == 'hello-nobuffer' else 'knative_domain'
             return {'status': {'url': 'http://' + service + '-test-ksvc.' + self.config[route],
@@ -179,3 +181,11 @@ class SetupPhases(unittest.TestCase):
             infra.run_phase('record-inventory', self.cluster, self.config, self.output)
         record.assert_called_once_with(self.cluster, self.config)
         self.cluster.call.assert_not_called()
+
+    def test_kong_requires_current_sso_code_before_applying(self):
+        self.cluster.get.return_value = {'data': {'handler.lua': 'stale-code'}}
+        self.cluster.get.side_effect = None
+        with patch.object(infra, 'find_legacy_gateway', return_value={}):
+            with self.assertRaisesRegex(ValueError, 'apply-sso'):
+                infra.run_phase('apply-kong', self.cluster, self.config, self.output)
+        self.assertFalse(any(c.args[0] == 'apply' for c in self.cluster.call.call_args_list))

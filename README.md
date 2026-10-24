@@ -3,6 +3,52 @@
 Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の buffer／nobuffer 計4経路を確認する。
 Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
+## SSO認証と公開callback
+
+構築例ではGoogle Workspace SSOを有効にし、通常／Knativeの保護されたアプリを
+1回のGoogleログインで利用する。認証状態は `tmp.ys-method-dev.com` 配下のCookieで共有する。
+buffer／nobufferは各アプリルートの設定を維持する。
+
+**`https://auth.knative.tmp.ys-method-dev.com/oauth2/callback` は、SSO未認証でも到達できる公開URL。**
+Googleから戻るブラウザを受け付けるため、callback自体にはアプリ用のSSO認証を要求しない。
+Kongがoauth2-proxyへ転送し、oauth2-proxyが認可コード・state・CSRF Cookieを検証して
+セッションを発行する。URLを直接開くだけではログインは成立しない。
+
+```mermaid
+sequenceDiagram
+    participant B as ブラウザ
+    participant K as Kong（公開HTTPS入口）
+    participant P as oauth2-proxy
+    participant G as Google
+    participant A as 通常／Knativeアプリ
+    B->>K: 保護されたアプリへアクセス
+    K->>P: 内部でセッション確認
+    P-->>K: 未認証
+    K-->>B: 認証ホストのログイン開始URLへ302
+    B->>K: 認証ホスト /oauth2/start
+    K->>P: ログイン開始要求を転送
+    P-->>B: Kong経由でGoogleへ302
+    B->>G: Googleログイン
+    G-->>B: 公開callbackへ302（認可コード・state付き）
+    Note over B,K: https://auth.knative.tmp.ys-method-dev.com/oauth2/callback<br/>公開URL：SSO未認証でも受付
+    B->>K: GET /oauth2/callback
+    K->>P: callback要求を転送（アプリ認証は要求しない）
+    P->>G: 認可コードをトークンへ交換
+    G-->>P: トークン応答
+    P-->>B: Kong経由で共有Cookie発行・元アプリへ302
+    B->>K: 元アプリへ再アクセス
+    K->>P: 内部でセッション確認
+    P-->>K: 認証済み
+    K->>A: アプリ要求を転送
+    A-->>B: Kong経由で応答
+```
+
+Googleへ登録する「承認済みのリダイレクトURI」は上記callbackの1件。
+Googleがブラウザへ移動先を返し、ブラウザがKongへ接続する。
+認証確認用の `/oauth2/auth` はクラスタ内部で使用し、外部OAuthルートでは公開しない。
+設定は [SSO手順](docs/sso.md)、転送先とGoogle側の登録方法は
+[SSOのリダイレクトとcallbackの仕組み](docs/sso-flow.md)を参照。
+
 ## ルーティング
 
 ```mermaid

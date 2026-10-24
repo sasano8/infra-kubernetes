@@ -123,6 +123,10 @@ def install_manager(cluster, fetch):
         if hashlib.sha256(manifest.read_bytes()).hexdigest() != MANIFEST_SHA256:
             raise ValueError("cert-manager キャッシュの SHA-256 が不一致です")
         cluster.call("apply", "--server-side", "--field-manager=cert-manager-install", "-f", manifest)
+    wait_manager(cluster)
+
+
+def wait_manager(cluster):
     for name in ("certificates.cert-manager.io", "issuers.cert-manager.io",
                  "orders.acme.cert-manager.io", "challenges.acme.cert-manager.io"):
         cluster.call("wait", "crd", name, "--for=condition=Established", "--timeout=120s")
@@ -286,10 +290,18 @@ def prepare(cluster, config, output, fetch, apply_config, legacy_ports=()):
     check_port(cluster, config, legacy_ports)
     ensure_token(cluster, config)
     install_manager(cluster, fetch)
+    apply_certificates(cluster, config, output, apply_config)
+    wait_certificates(cluster)
+
+
+def apply_certificates(cluster, config, output, apply_config):
     migrate_acme_account(cluster)
     # Only explicitly owned resources can transfer from the old field manager.
     migrate_manager = tls_manager_migration(cluster)
     apply_config(cluster, output / "tls.json", "cert-manager", "tls-config", force=migrate_manager)
+
+
+def wait_certificates(cluster):
     cluster.call("wait", "issuer/cloudflare-letsencrypt", "-n", "test", "--for=condition=Ready", "--timeout=180s")
     print("DNS-01 による証明書発行を待っています（各証明書は最大600秒）。", flush=True)
     for name in ("standard-tls", "knative-wildcard-tls", "standard-nobuffer-tls", "knative-nobuffer-tls"):

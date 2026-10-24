@@ -241,7 +241,7 @@ def apply_credentials(cluster, c, *, require_file=False):
         raise ValueError("SSO Secret登録失敗（詳細は機密保護のため非表示）") from None
 
 
-def install(cluster, c, output):
+def install(cluster, c, output, *, wait=True):
     if not c["sso"]["enabled"]:
         return
     apply_credentials(cluster, c)
@@ -254,6 +254,11 @@ def install(cluster, c, output):
             raise ValueError("所有確認できないSSOリソースは変更しません: " + item["kind"] + "/" + meta["name"])
     cluster.call("apply", "-f", output / "sso.json")
     cluster.call("rollout", "restart", "deployment/oauth2-proxy", "-n", "test")
+    if wait:
+        wait_ready(cluster)
+
+
+def wait_ready(cluster):
     cluster.call("rollout", "status", "deployment/oauth2-proxy", "-n", "test", "--timeout=300s")
 
 

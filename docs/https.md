@@ -18,12 +18,14 @@ Cloudflare の DNS で次の A レコードを **DNS only** として登録し�
 
 | 名前 | 用途 |
 | --- | --- |
-| `standard.tmp.ys-method-dev.com` | 通常経路ドメインの証明書対象 |
+| `*.standard.tmp.ys-method-dev.com` | 通常 buffer のサブドメイン |
+| `standard.tmp.ys-method-dev.com` | 通常 buffer のベースドメイン |
 | `*.standard-nobuffer.tmp.ys-method-dev.com` | 通常nobufferのサブドメイン |
+| `standard-nobuffer.tmp.ys-method-dev.com` | 通常 nobuffer のベースドメイン |
+| `*.knative.tmp.ys-method-dev.com` | Knative buffer のサブドメイン |
+| `knative.tmp.ys-method-dev.com` | Knative buffer のベースドメイン |
 | `*.knative-nobuffer.tmp.ys-method-dev.com` | Knative nobufferのサブドメイン |
-| `*.standard.tmp.ys-method-dev.com` | `hello-test-ssvc` など通常経路のサブドメイン |
-| `knative.tmp.ys-method-dev.com` | Knative 用ドメインの証明書対象 |
-| `*.knative.tmp.ys-method-dev.com` | 各 Knative Service |
+| `knative-nobuffer.tmp.ys-method-dev.com` | Knative nobuffer のベースドメイン |
 
 同名の Tunnel 用 CNAME がある場合は、切り替える検証用のレコードだけ整理する。
 SSO や Caddy の本番レコードは変更しない。

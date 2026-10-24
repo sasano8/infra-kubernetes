@@ -433,7 +433,7 @@ def apply_serving_core(cluster, source, manager="knative-upstream"):
                  input=json.dumps({"apiVersion": "v1", "kind": "List", "items": retained}), text=True)
 
 
-def bootstrap(cluster, output):
+def install_knative(cluster):
     # Only called for a new, installer-owned host. Never in existing mode.
     manager = knative_field_manager(cluster)
     with tempfile.TemporaryDirectory() as tmp:
@@ -456,9 +456,23 @@ def bootstrap(cluster, output):
         apply_serving_core(cluster, tmp / "serving-core.yaml", manager)
         cluster.call("rollout", "status", "deployment/webhook", "-n", "knative-serving", "--timeout=300s")
         cluster.call(*upstream, "-f", tmp / "kourier.yaml")
+
+
+def apply_config_knative(cluster, c, output):
+    if c["mode"] != "new-host":
+        raise ValueError("existingのKnative共通設定は自動変更しません。管理者が生成物を確認してください")
     apply_admission_config(cluster, output / "knative-config", "Knative", "knative-config", force=True)
+
+
+def wait_knative(cluster):
     for namespace in ("knative-serving", "kourier-system"):
         cluster.call("rollout", "status", "deployment", "-n", namespace, "--timeout=300s")
+
+
+def bootstrap(cluster, output, c):
+    install_knative(cluster)
+    apply_config_knative(cluster, c, output)
+    wait_knative(cluster)
 
 
 def find_legacy_gateway(cluster):
@@ -479,22 +493,10 @@ def find_legacy_gateway(cluster):
     return deployment
 
 
-def deploy(cluster, c, output):
-    network = cluster.get("configmap/config-network", "-n", "knative-serving")
-    if network.get("data", {}).get("domain-template") != TEMPLATE:
-        raise ValueError("既存 domain-template がこの構成の前提と異なります。自動変更しません")
-    sso.preflight(c, cluster)
-    render(c, output)
-    domain_file = output / "knative-config/domain.yaml"
-    if c["mode"] == "new-host":
-        cluster.call("apply", "--server-side", "--field-manager=knative-config", "--force-conflicts", "-f", domain_file)
-    else:
-        current = cluster.get("configmap/config-domain", "-n", "knative-serving").get("data", {})
-        if any(current.get(domain) != selector for domain, selector in knative_domain_data(c).items()):
-            raise ValueError("既存クラスタの config-domain を生成された domain.yaml と照合し、管理者が設定してください。自動上書きしません")
+def ensure_namespaces(cluster, names=NAMESPACES):
     # Reserve namespaces before writing anything inside them. Do not adopt unrelated namespaces.
     missing = []
-    for name in NAMESPACES:
+    for name in names:
         result = cluster.call("get", "namespace", name, "--ignore-not-found", "-o", "json",
                               capture_output=True, text=True)
         if result.stdout.strip():
@@ -507,13 +509,13 @@ def deploy(cluster, c, output):
         manifest = {"apiVersion": "v1", "kind": "Namespace",
                     "metadata": {"name": name, "labels": OWNER}}
         cluster.call("create", "-f", "-", input=json.dumps(manifest), text=True)
-    install_kic_prerequisites(cluster, output)
-    legacy_gateway = find_legacy_gateway(cluster)
-    legacy_ports = [p["hostPort"] for container in legacy_gateway.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
-                    for p in container.get("ports", []) if p.get("hostPort")] if legacy_gateway.get("spec", {}).get("replicas", 1) != 0 else []
-    tls.prepare(cluster, c, output, fetch, apply_admission_config, legacy_ports)
-    sso.install(cluster, c, output)
+
+
+def apply_apps(cluster, output):
     cluster.call("apply", "-f", output / "apps.yaml")
+
+
+def wait_apps(cluster, c):
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
     for name, domain in (("hello", c["knative_domain"]),
                          ("hello-nobuffer", c["knative_nobuffer_domain"]),
@@ -532,6 +534,42 @@ def deploy(cluster, c, output):
                 raise ValueError(f"Knative URL / Ready が {expected} に更新されませんでした。ドメインselectorを確認してください")
             print(f"Knative の URL / Ready 更新を待っています: {expected}", flush=True)
             time.sleep(5)
+
+
+def apply_kong(cluster, output):
+    cluster.call("apply", "-f", output / "kong.yaml")
+
+
+def wait_kong(cluster):
+    cluster.call("rollout", "status", "deployment/kong", "-n", "kong-system", "--timeout=300s")
+
+
+def apply_routes(cluster, output):
+    cluster.call("apply", "-f", output / "routes.yaml")
+
+
+def deploy(cluster, c, output):
+    network = cluster.get("configmap/config-network", "-n", "knative-serving")
+    if network.get("data", {}).get("domain-template") != TEMPLATE:
+        raise ValueError("既存 domain-template がこの構成の前提と異なります。自動変更しません")
+    sso.preflight(c, cluster)
+    render(c, output)
+    domain_file = output / "knative-config/domain.yaml"
+    if c["mode"] == "new-host":
+        cluster.call("apply", "--server-side", "--field-manager=knative-config", "--force-conflicts", "-f", domain_file)
+    else:
+        current = cluster.get("configmap/config-domain", "-n", "knative-serving").get("data", {})
+        if any(current.get(domain) != selector for domain, selector in knative_domain_data(c).items()):
+            raise ValueError("既存クラスタの config-domain を生成された domain.yaml と照合し、管理者が設定してください。自動上書きしません")
+    ensure_namespaces(cluster)
+    install_kic_prerequisites(cluster, output)
+    legacy_gateway = find_legacy_gateway(cluster)
+    legacy_ports = [p["hostPort"] for container in legacy_gateway.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+                    for p in container.get("ports", []) if p.get("hostPort")] if legacy_gateway.get("spec", {}).get("replicas", 1) != 0 else []
+    tls.prepare(cluster, c, output, fetch, apply_admission_config, legacy_ports)
+    sso.install(cluster, c, output)
+    apply_apps(cluster, output)
+    wait_apps(cluster, c)
     if legacy_gateway:
         print("旧 Kong を停止し、kong-system へ切り替えます。", flush=True)
         if legacy_gateway.get("spec", {}).get("replicas", 1) != 0:
@@ -542,12 +580,12 @@ def deploy(cluster, c, output):
             cluster.call("wait", *pods, "-n", "sas47-kong", "--for=delete", "--timeout=180s")
     if not c["sso"]["enabled"]:
         # Remove Plugin references before unloading Lua; otherwise DB-less readiness can deadlock.
-        cluster.call("apply", "-f", output / "routes.yaml")
+        apply_routes(cluster, output)
         sso.cleanup_disabled(cluster, c)
-    cluster.call("apply", "-f", output / "kong.yaml")
-    cluster.call("rollout", "status", "deployment/kong", "-n", "kong-system", "--timeout=300s")
+    apply_kong(cluster, output)
+    wait_kong(cluster)
     if c["sso"]["enabled"]:
-        cluster.call("apply", "-f", output / "routes.yaml")
+        apply_routes(cluster, output)
     cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
     inventory.record(cluster, c)
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
@@ -625,15 +663,112 @@ def remove(cluster):
         cluster.call("delete", kind, name, "--ignore-not-found")
 
 
+PHASE_ACTIONS = (
+    "apply-namespaces", "record-inventory", "apply-config-knative", "wait-knative", "wait-cert-manager",
+    "apply-certificates", "wait-certificates", "apply-sso", "wait-sso",
+    "apply-apps", "wait-apps", "apply-kong", "wait-kong", "apply-routes",
+)
+
+
+def run_phase(action, cluster, c, output, plugin=None):
+    # Waiting never renders, retrieves credentials, installs, or applies resources.
+    waits = {
+        "wait-knative": lambda: wait_knative(cluster),
+        "wait-cert-manager": lambda: tls.wait_manager(cluster),
+        "wait-certificates": lambda: tls.wait_certificates(cluster),
+        "wait-sso": lambda: sso.wait_ready(cluster),
+        "wait-apps": lambda: wait_apps(cluster, c),
+        "wait-kong": lambda: wait_kong(cluster),
+    }
+    if action in waits:
+        if action == "wait-certificates" and not c["tls"]["enabled"]:
+            raise ValueError("tls.enabled=true が必要です")
+        if action == "wait-sso" and not c["sso"]["enabled"]:
+            raise ValueError("sso.enabled=true が必要です")
+        waits[action]()
+        return
+    if action == "apply-namespaces":
+        ensure_namespaces(cluster)
+        return
+    if action == "record-inventory":
+        inventory.record(cluster, c)
+        return
+    if action == "plugin":
+        if plugin == "knative":
+            if c["mode"] != "new-host":
+                raise ValueError("existingのKnative本体は変更しません")
+            install_knative(cluster)
+        elif plugin == "cert-manager":
+            tls.install_manager(cluster, fetch)
+        elif plugin == "kong":
+            output.mkdir(parents=True, exist_ok=True)
+            ensure_namespaces(cluster, ("kong-system",))
+            install_kic_prerequisites(cluster, output)
+        return
+    render(c, output)
+    if action == "apply-config-knative":
+        apply_config_knative(cluster, c, output)
+    elif action == "apply-certificates":
+        if not c["tls"]["enabled"]:
+            raise ValueError("tls.enabled=true が必要です")
+        ensure_namespaces(cluster, ("test",))
+        tls.apply_certificates(cluster, c, output, apply_admission_config)
+    elif action == "apply-sso":
+        if not c["sso"]["enabled"]:
+            raise ValueError("無効化は参照解除の順序を維持するためdeploy/upを使用してください")
+        sso.preflight(c, cluster)
+        ensure_namespaces(cluster)
+        sso.install(cluster, c, output, wait=False)
+    elif action == "apply-apps":
+        ensure_namespaces(cluster, ("test",))
+        apply_apps(cluster, output)
+    elif action in ("apply-kong", "apply-routes"):
+        # An isolated phase must not bypass coordinated legacy/SSO transitions.
+        ensure_namespaces(cluster, ("kong-system",) if action == "apply-kong" else NAMESPACES)
+        if find_legacy_gateway(cluster):
+            raise ValueError("旧Kongからの切替はdeploy/upを使用してください")
+        found = cluster.call("get", "deployment/kong", "-n", "kong-system", "--ignore-not-found", "-o", "json", capture_output=True, text=True)
+        current = json.loads(found.stdout) if found.stdout.strip() else {}
+        template = current.get("spec", {}).get("template", {})
+        loaded = "infra.sasano8.dev/sso-code" in template.get("metadata", {}).get("annotations", {})
+        if current and loaded != c["sso"]["enabled"]:
+            raise ValueError("SSO有効/無効の切替はdeploy/upを使用してください")
+        if action == "apply-kong":
+            apply_kong(cluster, output)
+        else:
+            if not current:
+                raise ValueError("先にapply-kongとwait-kongを実行してください")
+            # Refuse plugin references until the exact mounted Lua version is ready.
+            if loaded:
+                expected = hashlib.sha256("".join(p.read_text() for p in sorted((ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua"))).encode()).hexdigest()
+                if template["metadata"]["annotations"].get("infra.sasano8.dev/sso-code") != expected:
+                    raise ValueError("先にapply-kongとwait-kongを実行してください")
+                status = current.get("status", {})
+                generation = current.get("metadata", {}).get("generation", 0)
+                if (status.get("observedGeneration", -1) < generation
+                        or status.get("updatedReplicas", 0) != current["spec"].get("replicas", 1)
+                        or status.get("replicas", 0) != current["spec"].get("replicas", 1)
+                        or status.get("availableReplicas", 0) != current["spec"].get("replicas", 1)):
+                    raise ValueError("wait-kongでrollout完了を確認してください")
+            apply_routes(cluster, output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token", *PHASE_ACTIONS, "plugin"))
+    parser.add_argument("plugin_action", nargs="?", choices=("install",))
+    parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong"))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
     parser.add_argument("--require-https", action="store_true", help="TLS が無効・未設定なら停止する")
     parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
+    if args.action == "plugin":
+        if args.plugin_action != "install" or not args.plugin_name:
+            parser.error("plugin install <knative|cert-manager|kong> を指定してください")
+    elif args.plugin_action or args.plugin_name:
+        parser.error("plugin以外に追加の位置引数は指定できません")
     if args.action == "configure":
         configure(args.config)
         return
@@ -650,6 +785,9 @@ def main():
         print(sso.test_plan(c, args.format))
         return
     cluster = Cluster(args.kubectl)
+    if args.action in PHASE_ACTIONS or args.action == "plugin":
+        run_phase(args.action, cluster, c, args.output, args.plugin_name)
+        return
     if args.action == "apply-secret-cloudflare-token":
         tls.ensure_token(cluster, c, require_file=True)
         return
@@ -676,7 +814,7 @@ def main():
     if args.action == "up" and c["mode"] == "new-host":
         render(c, args.output)
         cluster = install_host()
-        bootstrap(cluster, args.output)
+        bootstrap(cluster, args.output, c)
     deploy(cluster, c, args.output)
 
 

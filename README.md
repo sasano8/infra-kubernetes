@@ -155,6 +155,16 @@ sudo ./bin/infra up --require-https
 設定だけを確認する場合は `sudo ./bin/infra validate --require-https`。
 `up` も開始時に設定と必要なトークンを検証し、不足していれば構築前に停止する。
 
+一括構築は `up`、工程ごとの再実行は `plugin install`・`apply-*`・`wait-*` を使う。
+例えば証明書の設定適用と発行待機は分けて実行できる。
+
+```bash
+sudo ./bin/infra apply-certificates --kubectl 'k0s kubectl'
+sudo ./bin/infra wait-certificates --kubectl 'k0s kubectl'
+```
+
+標準導入・設定注入・個別設定の分担と全コマンドは [工程別の構築手順](docs/setup-phases.md)を参照。
+
 Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の順に揃える。
 
 | 種類 | リソース名 | 公開ホスト名 |

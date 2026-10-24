@@ -2,7 +2,7 @@
 
 cert-manager が Cloudflare API で DNS-01 検証用の TXT レコードを作り、
 Let's Encrypt が証明書を発行する。KIC が証明書 Secret を Kong に反映する。
-Cloudflare は DNS の管理・検証に使い、HTTPS は EC2 の Kong で終端する。
+Cloudflare は DNS の管理・検証に使い、HTTPS は Kong ホストで終端する。
 
 ```mermaid
 flowchart LR
@@ -24,9 +24,9 @@ flowchart LR
 **Continue to summary → Create Token** で発行してコピーする。
 Global API Key ではなく API トークンを使う。トークンをチャットや Git に貼らない。
 
-## 2. トークンを EC2 に配置
+## 2. トークンを Kong ホストに配置
 
-EC2 のリポジトリのルートで実行する。
+Kong ホストのリポジトリのルートで実行する。
 既に sudo で構築済みでも書き込めるよう、生成ディレクトリの所有者をログインユーザーに揃える。
 
 ```bash
@@ -45,16 +45,17 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 
 貼り付けても入力は表示されない。Enter で確定する。
 
-## 3. DNS と EC2 の設定
+## 3. DNS と公開ポートの設定
 
-以下の A レコードを **DNS only** で EC2 のパブリック IP に向ける。
+以下の A レコードを **DNS only** で Kong ホストの公開 IP に向ける。
 
 - `standard.tmp.ys-method-dev.com`
 - `*.standard.tmp.ys-method-dev.com`
 - `knative.tmp.ys-method-dev.com`
 - `*.knative.tmp.ys-method-dev.com`
 
-EC2 の443/TCPを検証元から許可する。DNS-01 のため、証明書発行用の80番受信許可は不要。
+ホスト側と外部側のファイアウォールで443/TCPを検証元から許可する。
+DNS-01 のため、証明書発行用の80番受信許可は不要。
 Cloudflare のエッジ証明書や多段サブドメインの Universal SSL 設定は使わない。
 
 ## 4. TLS を有効化して構築

@@ -23,8 +23,8 @@ Gateway API CRD・Helm CLI・DB は追加しない。構成と移行は [KIC](ki
 
 ## 新規 VM に一括インストール
 
-AWS の `dnf` 環境で使う、設定をリダイレクトで配置する手順は
-[AWS VM での初回構築](aws-setup.md)を参照。
+プロビジョニング時の cloud-init と、設定をリダイレクトで配置する手順は
+[Linux ホストでの初回構築](host-setup.md)を参照。
 
 対象は **専用の新規 Linux VM（systemd、amd64 / arm64）**。
 Ubuntu 24.04 LTS を想定。目安は 4 vCPU / 8 GiB RAM / 30 GiB ディスク。

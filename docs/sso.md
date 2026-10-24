@@ -1,5 +1,8 @@
 # Google Workspace SSO
 
+Kong・oauth2-proxy・Googleの役割と通信順序、Google側へのリダイレクトURI追加方法は
+[SSOのリダイレクトとcallbackの仕組み](sso-flow.md)を参照。
+
 ## 実装方式と範囲
 
 Kong OSS 3.9.1＋KIC 3.4.3に、リポジトリ内のLuaプラグイン `session-auth` を

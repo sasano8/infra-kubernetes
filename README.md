@@ -274,6 +274,10 @@ KnativeアプリはService本体の `metadata.labels` に
 ルートのbrowser／api／publicポリシーに従い、
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
 有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。
+Googleのログイン後は共通callbackへ戻り、Kongがoauth2-proxyへ転送する。
+認証完了後は共有Cookieを設定して元のアプリへ戻るため、Googleへのcallback登録は1件でよい。
+[SSOのリダイレクトとcallbackの仕組み](docs/sso-flow.md)に、通信図・Kongのルート条件・
+Google側へのリダイレクトURI追加手順をまとめている。
 設定・Google callback登録・検証の制約は [SSO手順](docs/sso.md)を参照。
 資格情報の変更は次のMakefileターゲットを使う。適用・再起動・待機は分離している。
 

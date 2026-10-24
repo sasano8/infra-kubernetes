@@ -1,7 +1,7 @@
 # Linux ホストでの初回構築
 
-プロビジョニング時は、[cloud-init ファイル](../configs/cloud-init.yaml) の公開鍵を自分のものに
-置き換えて渡す。cloud-init 対応イメージの既定ユーザーに SSH 公開鍵を登録する。
+プロビジョニング時は、[README の cloud-init 設定例](../README.md#ホストのプロビジョニング)を使う。
+cloud-init 対応イメージの既定ユーザーに SSH 公開鍵を登録する。
 
 初回構築の手順は [README](../README.md#インストール) にまとめている。
 設定ファイルをリダイレクトで配置し、`sudo ./bin/infra up` で構築する。

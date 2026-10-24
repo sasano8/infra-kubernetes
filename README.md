@@ -72,8 +72,8 @@ flowchart LR
 
 ## ホストのプロビジョニング
 
-cloud-init 対応の Linux イメージを使い、プロビジョニング時に
-[configs/cloud-init.yaml](configs/cloud-init.yaml) を渡す。公開鍵は自分のものに置き換える。
+cloud-init 対応の Linux イメージを使い、プロビジョニング時に以下を渡す。
+公開鍵は自分のものに置き換える。
 
 ```yaml
 #cloud-config

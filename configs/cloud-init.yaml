@@ -1,3 +1,0 @@
-#cloud-config
-ssh_authorized_keys:
-  - ssh-ed25519 AAAA...あなたの公開鍵... user@pc

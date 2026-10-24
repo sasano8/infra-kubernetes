@@ -50,7 +50,7 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 同じ手順でトークンファイルを置き換えた後、Secretだけを更新する。
 
 ```bash
-sudo ./bin/infra update-cloudflare-token --kubectl 'k0s kubectl'
+sudo ./bin/infra apply-secret-cloudflare-token --kubectl 'k0s kubectl'
 ```
 
 `--config` で指定した環境設定の `tls.cloudflare_token_file` を読み込む。

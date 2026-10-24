@@ -17,7 +17,7 @@ import infra
 import tls
 
 
-class CloudflareTokenUpdate(unittest.TestCase):
+class CloudflareTokenApply(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -36,7 +36,7 @@ class CloudflareTokenUpdate(unittest.TestCase):
 
     def execute(self):
         output = io.StringIO()
-        argv = ['infra', 'update-cloudflare-token', '--config', str(self.config), '--kubectl', 'k0s kubectl']
+        argv = ['infra', 'apply-secret-cloudflare-token', '--config', str(self.config), '--kubectl', 'k0s kubectl']
         with patch.object(sys, 'argv', argv), patch.object(infra, 'Cluster', return_value=self.cluster), \
              patch.object(infra.sso, 'preflight', side_effect=AssertionError('SSO must not be queried')), \
              patch.object(infra, 'deploy', side_effect=AssertionError('must not deploy')), redirect_stdout(output):

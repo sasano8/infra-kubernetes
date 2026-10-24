@@ -1,5 +1,10 @@
 """Optional Google SSO: render public configuration; keep credentials out of artifacts."""
 import base64
+import getpass
+import os
+import secrets
+import tempfile
+import warnings
 import json
 from pathlib import Path
 import re
@@ -82,6 +87,49 @@ def credentials(c):
     except (ValueError, TypeError, KeyError):
         raise ValueError("SSO Secretファイルは3つの資格情報キーとbase64の32byte Cookie鍵が必要です（値は非表示）") from None
     return data
+
+
+def configure_credentials(c, *, rotate_cookie=False):
+    name = c["sso"]["secret_file"]
+    if not name:
+        raise ValueError("ローカル管理する場合はsso.secret_fileを指定してください")
+    path = Path(name)
+    if not path.is_absolute():
+        path = ROOT / path
+    if path.is_symlink():
+        raise ValueError("SSO Secretファイルのシンボリックリンクは更新しません")
+    previous = credentials(c) if path.exists() else None
+    suffix = "（空欄なら現在値を維持）" if previous else ""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            client = getpass.getpass("GOOGLE_CLIENT_ID" + suffix + ": ").strip()
+            secret = getpass.getpass("GOOGLE_CLIENT_SECRET" + suffix + ": ").strip()
+    except (getpass.GetPassWarning, EOFError):
+        raise ValueError("非表示入力できる対話端末から実行してください（設定は保存していません）") from None
+    if previous:
+        client = client or previous["GOOGLE_CLIENT_ID"]
+        secret = secret or previous["GOOGLE_CLIENT_SECRET"]
+    if not client or not secret:
+        raise ValueError("GoogleクライアントIDとシークレットは空にできません")
+    cookie = (previous["OAUTH2_PROXY_COOKIE_SECRET"] if previous and not rotate_cookie
+              else base64.b64encode(secrets.token_bytes(32)).decode())
+    data = dict(zip(KEYS, (client, secret, cookie)))
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = None
+    try:
+        # NamedTemporaryFile creates mode 0600; replace never leaves a partial JSON.
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".google-sso-", delete=False) as file:
+            temporary = Path(file.name)
+            json.dump(data, file, indent=2)
+            file.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    print("SSO Secretファイルを保存しました（権限600・値は非表示）。")
+    if previous and rotate_cookie:
+        print("Cookie鍵を変更しました。配備反映後は既存セッションが無効になります。")
 
 
 def preflight(c, cluster):
@@ -173,24 +221,30 @@ def render(c, output, route_ids):
     return annotations
 
 
+def apply_credentials(cluster, c, *, require_file=False):
+    data = credentials(c)
+    if data is None:
+        if require_file:
+            raise ValueError("sso.secret_fileに更新する資格情報ファイルを指定してください")
+        return
+    found = cluster.call("get", "secret/" + SECRET, "-n", "test", "--ignore-not-found", "-o",
+                         'go-template=present:{{with .metadata.labels}}{{index . "infra.sasano8.dev/owner"}}{{end}}',
+                         capture_output=True, text=True)
+    if found.stdout.strip() and found.stdout.strip() != "present:infra-kubernetes":
+        raise ValueError("外部管理・所有確認できないgoogle-sso Secretは上書きしません")
+    manifest = resource("v1", "Secret", SECRET, "test", type="Opaque",
+                        data={k: base64.b64encode(v.encode()).decode() for k, v in data.items()})
+    try:
+        cluster.call("apply", "--server-side", "--field-manager=sso-secrets", "-f", "-",
+                     input=json.dumps(manifest), text=True, capture_output=True)
+    except subprocess.SubprocessError:
+        raise ValueError("SSO Secret登録失敗（詳細は機密保護のため非表示）") from None
+
+
 def install(cluster, c, output, *, wait=True):
     if not c["sso"]["enabled"]:
         return
-    data = credentials(c)
-    if data is not None:
-        found = cluster.call("get", "secret/" + SECRET, "-n", "test", "--ignore-not-found", "-o", 'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}',
-                             capture_output=True, text=True)
-        if found.stdout.strip():
-            # Read no Secret data, even on this ownership check.
-            if found.stdout.strip() != "infra-kubernetes":
-                raise ValueError("外部管理のgoogle-sso Secretをファイルで上書きしません")
-        manifest = resource("v1", "Secret", SECRET, "test", type="Opaque",
-                            data={k: base64.b64encode(v.encode()).decode() for k, v in data.items()})
-        try:
-            cluster.call("apply", "--server-side", "--field-manager=sso-secrets", "-f", "-",
-                         input=json.dumps(manifest), text=True, capture_output=True)
-        except subprocess.SubprocessError:
-            raise ValueError("SSO Secret登録失敗（詳細は機密保護のため非表示）") from None
+    apply_credentials(cluster, c)
     for item in json.loads((output / "sso.json").read_text())["items"]:
         meta = item["metadata"]
         owner = cluster.call("get", item["kind"] + "/" + meta["name"], "-n", meta["namespace"], "--ignore-not-found",

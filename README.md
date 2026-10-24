@@ -92,7 +92,7 @@ Kong ホストで実行する。以下は `dnf` が使える新規の専用 Linu
 Python 3.10 以上・curl・CA 証明書・sudo・systemd が必要。
 
 ```bash
-sudo dnf install -y git
+sudo dnf install -y git make
 mkdir projects
 cd projects
 git clone https://github.com/sasano8/infra-kubernetes.git
@@ -158,6 +158,7 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 Google OAuthクライアントへ各公開ホストのcallback URLを登録し、
 [SSOのSecret供給手順](docs/sso.md#secret供給)で `.local/secrets/google-sso.json` を権限600で作成する。
 GoogleクライアントID・クライアントシークレット・Cookie鍵が必要。
+`make configure-secret-google-sso` で非表示入力して作成・変更できる。変更時のCookie鍵は維持する。
 既存Secretを外部管理している場合は `secret_file` を省略し、`test/google-sso` を事前に供給する。
 準備がない場合、`up` はSSOを無効にせず事前検証で停止する。
 
@@ -272,6 +273,18 @@ KnativeアプリはService本体の `metadata.labels` に
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
 有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。
 設定・Google callback登録・検証の制約は [SSO手順](docs/sso.md)を参照。
+資格情報の変更は次のMakefileターゲットを使う。適用・再起動・待機は分離している。
+
+```bash
+make configure-secret-google-sso
+make apply-secret-google-sso
+make restart-deployment-oauth2-proxy
+make wait-deployment-oauth2-proxy
+```
+
+許可ドメインやルートなどの設定変更は `make edit-config` → `make up`。
+詳細は `make help` と [SSO設定の変更手順](docs/sso.md#makefileで作成変更する)を参照。
+
 SSO有効時の既存疎通スクリプトは `--internal standard`／`--internal knative` の内部診断用とし、
 外部確認は `bin/infra test-plan --format markdown` で生成する。実Googleログイン・実クラスタ検証は未実施。
 

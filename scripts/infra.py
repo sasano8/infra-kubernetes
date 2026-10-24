@@ -761,13 +761,14 @@ def run_phase(action, cluster, c, output, plugin=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token", *PHASE_ACTIONS, "plugin"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
     parser.add_argument("plugin_action", nargs="?", choices=("install",))
     parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong"))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
     parser.add_argument("--require-https", action="store_true", help="TLS が無効・未設定なら停止する")
+    parser.add_argument("--rotate-cookie", action="store_true", help="SSO資格情報の変更時にCookie鍵も再生成する")
     parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
     if args.action == "plugin":
@@ -775,6 +776,8 @@ def main():
             parser.error("plugin install <knative|cert-manager|kong> を指定してください")
     elif args.plugin_action or args.plugin_name:
         parser.error("plugin以外に追加の位置引数は指定できません")
+    if args.rotate_cookie and args.action != "configure-secret-google-sso":
+        parser.error("--rotate-cookieはconfigure-secret-google-sso専用です")
     if args.action == "configure":
         configure(args.config)
         return
@@ -782,6 +785,9 @@ def main():
         remove(Cluster(args.kubectl))
         return
     c = load(args.config)
+    if args.action == "configure-secret-google-sso":
+        sso.configure_credentials(c, rotate_cookie=args.rotate_cookie)
+        return
     if args.require_https and not c["tls"]["enabled"]:
         raise ValueError("HTTPS を要求しましたが tls.enabled が true ではありません。docs/https.md を参照してください")
     if args.action == "render":
@@ -793,6 +799,9 @@ def main():
     cluster = Cluster(args.kubectl)
     if args.action in PHASE_ACTIONS or args.action == "plugin":
         run_phase(args.action, cluster, c, args.output, args.plugin_name)
+        return
+    if args.action == "apply-secret-google-sso":
+        sso.apply_credentials(cluster, c, require_file=True)
         return
     if args.action == "apply-secret-cloudflare-token":
         tls.ensure_token(cluster, c, require_file=True)

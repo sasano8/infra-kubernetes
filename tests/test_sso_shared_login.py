@@ -37,6 +37,7 @@ class SharedLoginTests(unittest.TestCase):
         proxy = next(item for item in items if item["kind"] == "Deployment")
         args = proxy["spec"]["template"]["spec"]["containers"][0]["args"]
         self.assertIn("--redirect-url=https://auth.knative.example.test/oauth2/callback", args)
+        self.assertIn("--cookie-expire=72h", args)
         for argument in ("--cookie-name=__Secure-infra_sso", "--cookie-domain=example.test",
                          "--cookie-path=/", "--cookie-secure=true", "--cookie-httponly=true",
                          "--cookie-samesite=lax"):
@@ -54,6 +55,20 @@ class SharedLoginTests(unittest.TestCase):
         self.assertEqual(container["image"], contract["image"], "Update the upstream CLI contract when changing versions")
         generated = {arg[2:].split("=", 1)[0] for arg in container["args"] if arg.startswith("--cookie-")}
         self.assertFalse(generated - set(contract["flags"]), "Unsupported Cookie CLI flags: " + str(generated - set(contract["flags"])))
+
+    def test_cookie_lifetime_is_configurable_in_hours(self):
+        self.raw["sso"]["cookie_expire_hours"] = 24
+        items = self.resources(self.load())
+        container = next(item for item in items if item["kind"] == "Deployment")["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn("--cookie-expire=24h", container["args"])
+        self.assertIn("--cookie-refresh=1h", container["args"])
+
+    def test_cookie_lifetime_rejects_invalid_values(self):
+        for value in (None, True, False, "72", 1.5, 0, -1, 1, 8761):
+            with self.subTest(value=value):
+                self.raw["sso"]["cookie_expire_hours"] = value
+                with self.assertRaisesRegex(ValueError, "cookie_expire_hours"):
+                    self.load()
 
     def test_auth_route_has_its_own_tls_binding_and_only_auth_host(self):
         config = self.load()

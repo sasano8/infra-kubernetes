@@ -18,7 +18,8 @@ SECRET = "google-sso"
 KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET")
 ID_TOKEN_HEADER = "X-Forwarded-Id-Token"
 DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {}, "api_paths": ["/api", "/upload"],
-            "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER, "auth_host": "", "cookie_domain": ""}
+            "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER, "auth_host": "", "cookie_domain": "",
+            "cookie_expire_hours": 72}
 COOKIE_NAME = "__Secure-infra_sso"
 
 
@@ -65,6 +66,8 @@ def normalize(c, routes):
     s = dict(DEFAULTS, **supplied)
     if type(s["enabled"]) is not bool:
         raise ValueError("sso.enabled は true / false")
+    if type(s["cookie_expire_hours"]) is not int or not 2 <= s["cookie_expire_hours"] <= 8760:
+        raise ValueError("sso.cookie_expire_hours は2〜8760時間の整数です（更新間隔は1時間）")
     if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("browser", "api", "public") for k, v in s["routes"].items()):
         raise ValueError("sso.routes はルートIDと browser / api / public の対応を指定してください")
     if not valid_id_token_header(s["id_token_header"]):
@@ -230,7 +233,8 @@ def render(c, output, route_ids):
             "--reverse-proxy=true", "--redirect-url=" + origin(c) + "/oauth2/callback", "--set-xauthrequest=true",
             "--cookie-name=" + COOKIE_NAME, "--cookie-domain=" + s["cookie_domain"], "--cookie-path=/",
             "--cookie-secure=true", "--cookie-httponly=true",
-            "--cookie-samesite=lax", "--cookie-expire=8h", "--cookie-refresh=1h", "--skip-provider-button=true",
+            "--cookie-samesite=lax", "--cookie-expire=" + str(s["cookie_expire_hours"]) + "h",
+            "--cookie-refresh=1h", "--skip-provider-button=true",
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",
             "--pass-access-token=false", "--pass-authorization-header=false", "--request-logging=false"]
     args.append("--set-authorization-header=" + str(bool(s["id_token_routes"])).lower())

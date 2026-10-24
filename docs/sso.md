@@ -38,6 +38,7 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
   "email_domain": "your-workspace.example",
   "auth_host": "auth.knative.tmp.ys-method-dev.com",
   "cookie_domain": "tmp.ys-method-dev.com",
+  "cookie_expire_hours": 72,
   "secret_file": ".local/secrets/google-sso.json",
   "routes": {
     "standard_domain": "browser",
@@ -101,7 +102,13 @@ Googleの許可ユーザー・組織・同意画面の公開範囲も設定す�
 アプリ内部の管理権限が付くわけではない。
 
 Cookieは `__Secure-infra_sso`、Domain=`tmp.ys-method-dev.com`、Path=/、Secure、HttpOnly、
-SameSite=Lax、有効期限8時間、更新間隔1時間。親Domainを指定するため `__Host-` は使わない。
+SameSite=Lax、有効期限は既定で72時間（3日）、更新間隔1時間。親Domainを指定するため `__Host-` は使わない。
+`sso.cookie_expire_hours` で有効期限を時間単位の整数（2〜8760）に変更できる。
+`local.json` の既存sso設定へ `"cookie_expire_hours": 72` を追加し、`make up` で反映する。
+これはサービスのセッションCookieの期限であり、Google側のログイン期限とは別。
+セッション更新に伴いCookieの期限も更新されるため、初回ログインから必ず3日後に
+ログアウトする絶対期限ではない。Google側での失効や再認証要求により早くログインが必要になる場合もある。
+既存Cookieの期限は配備だけでは変わらず、新規発行・更新後に新しい設定が適用される。
 同じCookieで通常／Knative・buffer／nobufferの各アプリを認証する。
 アプリ独自のCookieは別名・ホスト限定とし、SSO Cookieと分割CookieはKongでアプリへの転送から除去する。
 配下の全アプリを同じ信頼範囲で管理し、アプリから同名の親Domain Cookieを設定しない。

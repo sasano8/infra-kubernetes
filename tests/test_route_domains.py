@@ -1,5 +1,6 @@
 """Offline configuration, TLS, and resource-lifecycle checks for the four routes."""
 import json
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -57,6 +58,21 @@ class FourRouteDomains(unittest.TestCase):
         self.assertNotIn('infra.sasano8.dev/buffering', apps)
         self.assertNotIn('konghq.com/request-buffering', apps)
         self.assertNotIn('konghq.com/response-buffering', apps)
+
+    def test_knative_services_leave_reserved_environment_to_knative(self):
+        infra.render(self.load(), self.directory)
+        documents = (self.directory / 'apps.yaml').read_text().split('\n---\n')
+        services = [doc for doc in documents if 'apiVersion: serving.knative.dev/v1\n' in doc]
+        self.assertEqual(len(services), 3)
+        for doc in services:
+            name = re.search(r'^  name: (.+)$', doc, re.M).group(1)
+            with self.subTest(service=name):
+                reserved = re.findall(r'\bname:\s*[\"\']?(PORT|K_SERVICE|K_CONFIGURATION|K_REVISION)[\"\']?\s*[,}\n]', doc)
+                self.assertEqual(reserved, [], 'Knative injects reserved environment variables itself')
+                self.assertIn('containerPort: 8080', doc)
+                self.assertIn('name: MAX_BODY_SIZE, value: "67108864"', doc)
+        deployment = documents[0]
+        self.assertIn('name: PORT, value: "8080"', deployment)
 
     def enable_tls(self):
         self.config['tls'].update(enabled=True, email='admin@example.test', cloudflare_zone='example.test')

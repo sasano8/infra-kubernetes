@@ -71,7 +71,6 @@ spec:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: PORT, value: "8080"}
             - {name: MAX_BODY_SIZE, value: "67108864"}
             - {name: MAX_DURATION, value: "60s"}
             - {name: SRV_READ_TIMEOUT, value: "120s"}
@@ -105,7 +104,6 @@ spec:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: PORT, value: "8080"}
             - {name: MAX_BODY_SIZE, value: "67108864"}
             - {name: MAX_DURATION, value: "60s"}
             - {name: SRV_READ_TIMEOUT, value: "120s"}
@@ -137,7 +135,6 @@ spec:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: PORT, value: "8080"}
             - {name: MAX_BODY_SIZE, value: "67108864"}
             - {name: MAX_DURATION, value: "60s"}
             - {name: SRV_READ_TIMEOUT, value: "120s"}

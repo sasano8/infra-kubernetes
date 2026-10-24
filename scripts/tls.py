@@ -243,8 +243,10 @@ def preflight(config, cluster=None):
                      "インストールは開始していません。手順: docs/https.md")
 
 
-def ensure_token(cluster, config):
+def ensure_token(cluster, config, *, require_file=False):
     token = read_token_file(config)
+    if token is None and require_file:
+        raise ValueError(f"更新するCloudflareトークンファイルがありません: {token_file(config)}")
     present = find_token(cluster, allow_legacy=token is None)
     if token is None:
         if present:

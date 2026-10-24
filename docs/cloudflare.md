@@ -45,6 +45,29 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 
 貼り付けても入力は表示されない。Enter で確定する。
 
+### 起動済みクラスタのトークンを更新する
+
+同じ手順でトークンファイルを置き換えた後、Secretだけを更新する。
+
+```bash
+sudo ./bin/infra update-cloudflare-token --kubectl 'k0s kubectl'
+```
+
+`--config` で指定した環境設定の `tls.cloudflare_token_file` を読み込む。
+既定は `.local/secrets/cloudflare-api-token`。ファイルの権限と内容、既存Secretの所有ラベルを
+確認して `test/cloudflare-api-token` へ反映し、トークン値は表示しない。
+ファイルがない場合は更新を中止する。他のコンポーネントの配備や再起動、SSO資格情報の確認は行わない。
+通常のkubectlを使う場合は `--kubectl kubectl` を指定する。
+
+cert-managerの自動再試行による証明書発行は、別途確認する。
+
+```bash
+sudo k0s kubectl -n test get certificates -w
+```
+
+Cloudflare側のトークンには対象ゾーンのZone Read／DNS Edit権限が必要。
+接続元IPを制限している場合は、現在のKongホストの公開IPも許可する。
+
 ## 3. DNS と公開ポートの設定
 
 以下の A レコードを **DNS only** で Kong ホストの公開 IP に向ける。

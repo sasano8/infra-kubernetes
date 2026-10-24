@@ -627,7 +627,7 @@ def remove(cluster):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "update-cloudflare-token"))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
@@ -650,6 +650,9 @@ def main():
         print(sso.test_plan(c, args.format))
         return
     cluster = Cluster(args.kubectl)
+    if args.action == "update-cloudflare-token":
+        tls.ensure_token(cluster, c, require_file=True)
+        return
     if c["tls"]["enabled"]:
         credential_cluster = cluster
         if c["mode"] == "new-host" and args.kubectl == "kubectl":

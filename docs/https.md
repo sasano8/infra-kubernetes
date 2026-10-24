@@ -69,7 +69,8 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 `test/cloudflare-api-token` Secret を作成する。
 Secret 値はログや生成マニフェストへ出力せず、API エラーに値が含まれる場合も表示しない。
 再実行時はファイルがあれば更新し、なければ所有ラベル付きの登録済み Secret を使用する。
-更新を継続できるようトークンを有効に保つ。失効・ローテーション時はファイルを置き換えて `up` を実行する。
+更新を継続できるようトークンを有効に保つ。失効・ローテーション時はファイルを置き換えて
+`sudo ./bin/infra update-cloudflare-token --kubectl 'k0s kubectl'` でSecretだけを更新できる。
 
 ## 3. 設定
 

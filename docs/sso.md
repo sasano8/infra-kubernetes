@@ -151,51 +151,68 @@ Infisical／External Secrets等でこのSecretを供給する場合、`secret_fi
 通常ファイル・権限600が必須で、ファイルの値は生成マニフェストへ保存しない。
 登録APIのエラー本文も表示しない。外部管理・所有確認できないSecretをファイルで上書きしない。
 
-リポジトリのルートで次を実行すると、Googleクライアント情報を非表示入力し、
-32byteのCookie鍵を生成して権限600のJSONへ保存できる。既存ファイルは上書きしない。
+### Makefileで作成・変更する
+
+リポジトリのルートで、sudoを付けずに実行する。
 
 ```bash
-python3 - <<'PY'
-import base64
-import getpass
-import json
-import os
-from pathlib import Path
-import secrets
-
-os.umask(0o077)
-path = Path(".local/secrets/google-sso.json")
-path.parent.mkdir(parents=True, exist_ok=True)
-if path.exists():
-    raise SystemExit("既存ファイルがあります。更新する場合はエディタで編集してください。")
-client_id = getpass.getpass("GOOGLE_CLIENT_ID: ").strip()
-client_secret = getpass.getpass("GOOGLE_CLIENT_SECRET: ").strip()
-if not client_id or not client_secret:
-    raise SystemExit("GoogleクライアントIDとシークレットは空にできません。")
-data = {
-    "GOOGLE_CLIENT_ID": client_id,
-    "GOOGLE_CLIENT_SECRET": client_secret,
-    "OAUTH2_PROXY_COOKIE_SECRET": base64.b64encode(secrets.token_bytes(32)).decode(),
-}
-with path.open("x") as file:
-    json.dump(data, file, indent=2)
-print("SSO Secretファイルを作成しました（値は非表示）。")
-PY
+make configure-secret-google-sso
 ```
 
-Google側の [callback登録](#googleクライアントcookie) も済ませてから構築する。
+`local.json` の `sso.secret_file` へGoogleクライアントID・シークレットを非表示入力して保存する。
+初回は32byteのCookie鍵を自動生成する。変更時の空入力は現在値を維持し、Cookie鍵も維持する。
+ファイルは権限600の一時ファイルから置き換え、入力取消や保存失敗で既存JSONを壊さない。
+`secret_file` を省略した外部管理構成ではローカルファイルを作成しない。
+
+Google側のcallback登録も済ませてから構築する。
 READMEの例では6つの公開ホストすべての `/oauth2/callback` を登録する。
-準備後、次で検証・配備する。
+初回の一括構築は `make up` で行える。
+
+### 資格情報だけを既存クラスタへ反映する
 
 ```bash
-bin/infra validate
-bin/infra render
-sudo bin/infra deploy --kubectl 'k0s kubectl'
+make apply-secret-google-sso
+make restart-deployment-oauth2-proxy
+make wait-deployment-oauth2-proxy
 ```
+
+1つ目は `test/google-sso` Secretだけを更新する。既存Secretの所有ラベルを確認し、
+外部管理・所有確認できないSecretは上書きしない。トークン値やAPIエラー詳細は表示しない。
+2つ目で認証サービスを再起動して環境変数を読み直し、3つ目でrollout完了を待つ。
+適用・再起動・待機はそれぞれ独立しているため、上の順に実行する。
+Cloudflareのトークン、Kongやアプリの配備をこの更新に含めない。
+
+既定の接続先は `sudo k0s kubectl`。別クラスタは例えば次のように指定する。
+
+```bash
+make apply-secret-google-sso KUBECTL=kubectl SUDO=
+```
+
+### Cookie鍵を変更する
+
+```bash
+make rotate-cookie-secret-google-sso
+```
+
+Cookie鍵も変更したい場合だけ実行する。Secretへの反映・認証サービス再起動後、既存セッションは無効になる。
+通常のクライアント情報変更ではこのターゲットは不要。
+
+### 許可ドメイン・公開ルートなどを変更する
+
+```bash
+make edit-config
+make up
+```
+
+`edit-config` はenvironment JSONをエディタで開く。`EDITOR=nano` 等でエディタを選択できる。
+許可メールドメイン・SSO有効／無効・公開ルート設定はSecretだけの更新では反映されないため、
+一括配備で必要なリソースと参照順序を反映する。
+別の設定ファイルは各ターゲットへ `CONFIG=/path/to/environment.json` を指定する。
+`make help` で全ターゲットと変数を確認できる。
 
 ファイル供給ではCookie鍵の形式も事前検証する。既存Secretはキーの有無を事前検証し、
 値の妥当性はoauth2-proxy起動で確認する。不正ならrolloutが失敗し、保護ルートは認証を解除しない。
-Secret更新後はdeployでoauth2-proxyを再起動して環境変数を読み直す。
+Secret更新後は `make restart-deployment-oauth2-proxy` で環境変数を読み直す。
 Cookie鍵変更は既存セッションを無効化する。OAuth client secret変更はGoogle側と同期させる。
 
 ## 配備・無効化・復旧

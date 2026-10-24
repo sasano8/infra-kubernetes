@@ -51,6 +51,9 @@ Googleがブラウザへ移動先を返し、ブラウザがKongへ接続する�
 
 ## ルーティング
 
+Argo CD・Infisical・pinnerの導入は [プラットフォームplugin](docs/platform-plugins.md)を参照。
+アプリやSecretの同期定義は別管理とし、ESOは任意pluginとして`up`から除外する。
+
 ```mermaid
 flowchart LR
     Internet[インターネット]

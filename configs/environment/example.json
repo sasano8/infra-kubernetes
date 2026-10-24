@@ -23,5 +23,21 @@
     "enabled": false,
     "id_token_routes": [],
     "id_token_header": "X-Forwarded-Id-Token"
+  },
+  "plugins": {
+    "argocd": {
+      "enabled": false
+    },
+    "infisical": {
+      "enabled": false
+    },
+    "external-secrets": {},
+    "pinner": {
+      "enabled": false,
+      "namespaces": [
+        "test"
+      ],
+      "dry_run": true
+    }
   }
 }

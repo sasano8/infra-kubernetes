@@ -17,9 +17,13 @@
 | `scripts/plugin-install.sh` | 汎用の全プラグイン導入ではなく、必要な構成だけ順序を固定して配備 |
 | `bootstrap/` の順次実行 | `bin/infra up` で明示的な依存順に構築 |
 | Docker / Compose / WSL ネットワーク | ホスト VM に不要なため取り込まない |
-| Argo CD / Image Updater / Vault / Infisical / External Secrets / Pinner | SAS-47 の範囲外。自動導入しない |
+| Argo CD / Infisical / Pinner | 追加pluginとして導入可能。有効化時のみupで順次導入。同期定義は別管理 |
+| External Secrets | 任意pluginとして個別導入のみ。upには含めない |
+| Image Updater / Vault | 未移植。自動導入しない |
 
 ## 維持する仕様
+
+追加pluginの管理境界・導入順・検証範囲は [プラットフォームplugin](platform-plugins.md)を参照。
 
 - ホスト上で k0s の単一ノード controller / worker を起動する。
 - Kourier を Knative の ingress として維持する。

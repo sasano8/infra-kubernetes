@@ -1,0 +1,24 @@
+# Merge these fields into the Application managed in your application repository.
+# Preserve its existing ignoreDifferences and syncOptions entries.
+# pinner changes only this annotation; do not ignore image fields or all metadata.
+spec:
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."floatingtag-pinner/restartedAt"'
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."floatingtag-pinner/restartedAt"'
+    - group: apps
+      kind: DaemonSet
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."floatingtag-pinner/restartedAt"'
+    - group: serving.knative.dev
+      kind: Service
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."floatingtag-pinner/restartedAt"'
+  syncPolicy:
+    syncOptions:
+      - RespectIgnoreDifferences=true

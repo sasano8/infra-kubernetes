@@ -18,6 +18,7 @@ import time
 import tls
 import inventory
 import sso
+import platform_plugins
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
@@ -86,7 +87,7 @@ def load(path):
     c.setdefault("base_domain", None)
     required = {"mode", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins"}
     if missing or unknown:
         errors = []
         if missing:
@@ -128,6 +129,7 @@ def load(path):
         resolve_route(c, kind)
     tls.normalize(c)
     sso.normalize(c, PUBLIC_ROUTES)
+    platform_plugins.normalize(c)
     return c
 
 
@@ -179,6 +181,7 @@ def configure(path):
 
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
+    platform_plugins.render(c, output)
     values = dict(c, knative_host="hello-test-ksvc." + c["knative_domain"],
                   standard_host="hello-test-ssvc." + c["standard_domain"],
                   standard_nobuffer_host="hello-test-ssvc." + c["standard_nobuffer_domain"],
@@ -589,6 +592,7 @@ def deploy(cluster, c, output):
     if c["sso"]["enabled"]:
         apply_routes(cluster, output)
     cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
+    platform_plugins.up(cluster, c, ensure_namespaces)
     inventory.record(cluster, c)
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
 
@@ -696,7 +700,9 @@ def run_phase(action, cluster, c, output, plugin=None):
         inventory.record(cluster, c)
         return
     if action == "plugin":
-        if plugin == "knative":
+        if plugin in platform_plugins.NAMES:
+            platform_plugins.install(plugin, cluster, c, ensure_namespaces)
+        elif plugin == "knative":
             if c["mode"] != "new-host":
                 raise ValueError("existingのKnative本体は変更しません")
             install_knative(cluster)
@@ -764,8 +770,8 @@ def run_phase(action, cluster, c, output, plugin=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
-    parser.add_argument("plugin_action", nargs="?", choices=("install",))
-    parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong"))
+    parser.add_argument("plugin_action", nargs="?", choices=("install", "wait"))
+    parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong", *platform_plugins.NAMES))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
     parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
@@ -774,8 +780,10 @@ def main():
     parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
     if args.action == "plugin":
-        if args.plugin_action != "install" or not args.plugin_name:
-            parser.error("plugin install <knative|cert-manager|kong> を指定してください")
+        if not args.plugin_action or not args.plugin_name:
+            parser.error("plugin install/wait <plugin名> を指定してください")
+        if args.plugin_action == "wait" and args.plugin_name not in platform_plugins.NAMES:
+            parser.error("既存pluginの待機にはwait-knative / wait-cert-manager / wait-kongを使用してください")
     elif args.plugin_action or args.plugin_name:
         parser.error("plugin以外に追加の位置引数は指定できません")
     if args.rotate_cookie and args.action != "configure-secret-google-sso":
@@ -799,6 +807,9 @@ def main():
         print(sso.test_plan(c, args.format))
         return
     cluster = Cluster(args.kubectl)
+    if args.action == "plugin" and args.plugin_action == "wait":
+        platform_plugins.wait(args.plugin_name, cluster)
+        return
     if args.action in PHASE_ACTIONS or args.action == "plugin":
         run_phase(args.action, cluster, c, args.output, args.plugin_name)
         return
@@ -826,8 +837,10 @@ def main():
     else:
         print("TLS: 無効（443番への HTTPS 公開は設定しません）。HTTPS が必要なら --require-https を指定してください。", flush=True)
     if args.action == "validate":
+        platform_plugins.preflight(c)
         print("検証のみ完了しました。ダウンロード・インストール・クラスタ変更は行っていません。", flush=True)
         return
+    platform_plugins.preflight(c)
     if args.action == "up" and c["mode"] == "new-host":
         render(c, args.output)
         cluster = install_host()

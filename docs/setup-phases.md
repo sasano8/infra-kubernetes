@@ -40,6 +40,8 @@ APIの前提条件を満たすため導入／適用処理に残す。
 | `plugin install knative` | Knative Serving／Kourier本体。環境固有の追加設定は別適用 |
 | `plugin install cert-manager` | cert-manager本体・CRD。Issuer／Certificateは別適用 |
 | `plugin install kong` | KICのCRD・RBAC・コントローラー。Kong本体の設定はapply-kong |
+| `plugin install argocd/infisical/external-secrets/pinner` | 指定pluginの本体導入。ESOは個別導入のみ |
+| `plugin wait argocd/infisical/external-secrets/pinner` | 指定pluginのDeployment／StatefulSetの待機 |
 | `apply-config-knative` / `wait-knative` | ドメイン・Ingressクラス・Kourier設定の適用／Deployment待機 |
 | `wait-cert-manager` | cert-managerのCRD確立・Deployment待機 |
 | `apply-secret-cloudflare-token` | ローカルトークンをtest/cloudflare-api-tokenへ登録 |
@@ -93,3 +95,6 @@ SSO有効／無効の切替と旧Kongからの移行は、参照解除・rollout
 個別の `apply-sso` でSSOを無効化することもできない。
 
 個別コマンドは、今回の変更で自動実行を分離したもの。実機での全工程・各再実行経路の検証は未実施。
+
+追加の標準pluginは`plugins.*.enabled=true`の場合に`up`／`deploy`のサンプル配備後へ続けて実行する。
+順序・Helmの前提・別管理とする同期定義は [プラットフォームplugin](platform-plugins.md)を参照。

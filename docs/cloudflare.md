@@ -103,17 +103,19 @@ sudo ./bin/infra up --require-https
 設定とトークンを事前検証し、cert-manager 導入・証明書発行・Kong の443番公開まで行う。
 更新は cert-manager が自動で行うため、Cloudflare トークンを有効に保つ。
 
+TLS設定は抜粋。SSOも有効にする完全な設定例とGoogle認証情報の準備は
+[READMEのインストール手順](../README.md#インストール)を参照。
+
 ## 5. 確認
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
-sudo python3 scripts/check-routes.py
+./bin/infra test-plan --format markdown
 ```
 
-期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
-確認スクリプトは VM 内の HTTP 4経路とスケールゼロ復帰を確認する。
-外部 HTTPS は上記の curl で証明書を検証したまま確認する。
+生成したURLと期待応答を外部端末から確認する。READMEのSSO有効設定では未認証HTTP 302、
+SSO無効の公開ルートではHTTP 200が期待値。TLS検証は有効のままとする。
+SSO有効時の内部確認は `check-routes.py --internal standard` と `--internal knative` を使う。
+ブラウザでログインした後、go-httpbinのJSONとHostを確認する。
 
 完全な設定例、証明書の対象、発行状況・更新・撤去は [HTTPS の詳細](https.md) を参照。
 

@@ -151,10 +151,43 @@ Infisical／External Secrets等でこのSecretを供給する場合、`secret_fi
 通常ファイル・権限600が必須で、ファイルの値は生成マニフェストへ保存しない。
 登録APIのエラー本文も表示しない。外部管理・所有確認できないSecretをファイルで上書きしない。
 
+リポジトリのルートで次を実行すると、Googleクライアント情報を非表示入力し、
+32byteのCookie鍵を生成して権限600のJSONへ保存できる。既存ファイルは上書きしない。
+
 ```bash
-mkdir -p .local/secrets
-# 安全なエディタ等で資格情報JSONを作成する。シェル履歴や共有ターミナルへ値を貼らない。
-chmod 600 .local/secrets/google-sso.json
+python3 - <<'PY'
+import base64
+import getpass
+import json
+import os
+from pathlib import Path
+import secrets
+
+os.umask(0o077)
+path = Path(".local/secrets/google-sso.json")
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.exists():
+    raise SystemExit("既存ファイルがあります。更新する場合はエディタで編集してください。")
+client_id = getpass.getpass("GOOGLE_CLIENT_ID: ").strip()
+client_secret = getpass.getpass("GOOGLE_CLIENT_SECRET: ").strip()
+if not client_id or not client_secret:
+    raise SystemExit("GoogleクライアントIDとシークレットは空にできません。")
+data = {
+    "GOOGLE_CLIENT_ID": client_id,
+    "GOOGLE_CLIENT_SECRET": client_secret,
+    "OAUTH2_PROXY_COOKIE_SECRET": base64.b64encode(secrets.token_bytes(32)).decode(),
+}
+with path.open("x") as file:
+    json.dump(data, file, indent=2)
+print("SSO Secretファイルを作成しました（値は非表示）。")
+PY
+```
+
+Google側の [callback登録](#googleクライアントcookie) も済ませてから構築する。
+READMEの例では6つの公開ホストすべての `/oauth2/callback` を登録する。
+準備後、次で検証・配備する。
+
+```bash
 bin/infra validate
 bin/infra render
 sudo bin/infra deploy --kubectl 'k0s kubectl'

@@ -99,7 +99,8 @@ git clone https://github.com/sasano8/infra-kubernetes.git
 cd infra-kubernetes
 ```
 
-HTTPS 公開用の設定ファイルを配置する。`email` は受信できる自分のメールアドレスに変更する。
+HTTPS・Google Workspace SSOを有効にした設定ファイルを配置する。
+`tls.email` は連絡先、`sso.email_domain` はログインを許可するWorkspaceのメールドメインに変更する。
 
 ```bash
 cat > configs/environment/local.json <<'EOF'
@@ -117,6 +118,17 @@ cat > configs/environment/local.json <<'EOF'
     "email": "you@example.com",
     "cloudflare_zone": "ys-method-dev.com",
     "host_https_port": 443
+  },
+  "sso": {
+    "enabled": true,
+    "email_domain": "ys-method.com",
+    "secret_file": ".local/secrets/google-sso.json",
+    "routes": {
+      "standard_domain": "browser",
+      "standard_nobuffer_domain": "browser",
+      "knative_domain": "browser",
+      "knative_nobuffer_domain": "browser"
+    }
   }
 }
 EOF
@@ -143,6 +155,12 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 )
 ```
 
+Google OAuthクライアントへ各公開ホストのcallback URLを登録し、
+[SSOのSecret供給手順](docs/sso.md#secret供給)で `.local/secrets/google-sso.json` を権限600で作成する。
+GoogleクライアントID・クライアントシークレット・Cookie鍵が必要。
+既存Secretを外部管理している場合は `secret_file` を省略し、`test/google-sso` を事前に供給する。
+準備がない場合、`up` はSSOを無効にせず事前検証で停止する。
+
 [DNS・公開ポートの準備](docs/https.md#1-dns-と公開ポートの準備)を済ませてから、検証・インストールする。
 DNS は **DNS only** で Kong ホストに到達する公開 IP に向け、ファイアウォールで443/TCPを許可する。
 ホスト側と外部側のファイアウォールで受信を許可する。
@@ -166,37 +184,35 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 ## 動作確認
 
-### Kong ホスト上：経路・スケールゼロ復帰
+### Kong ホスト上：内部経路・スケールゼロ復帰
 
-Kong ホスト上で実行する。外部 DNS・公開443番・証明書の確認は含まない。
+SSO有効時は内部診断を種別ごとに実行する。外部DNS・HTTPS・Kongの認証確認は含まない。
 
 ```bash
-sudo python3 scripts/check-routes.py
+sudo python3 scripts/check-routes.py --internal standard
+sudo python3 scripts/check-routes.py --internal knative
 ```
 
-port-forward を自動で起動し、次を確認する。
-
-- Kong → 通常 Service：HTTP 200・go-httpbin JSON の通常 Service 側 Host
-- Kong → Kourier → Knative：HTTP 200・go-httpbin JSON の Knative 側 Host
-- 通常／Knative の nobuffer 経路：HTTP 200 と公開 Host の保持
-- Knative 3サービスの Pod がそれぞれ0件になるまで待ち、再アクセスによる復帰を確認
-
+通常はServiceへ、KnativeはKourierへ127.0.0.1のport-forwardで接続する。
+通常3ホストのHTTP 200・Host保持と、Knative3ホストのHTTP 200・Host保持・Podゼロからの復帰を確認する。
+内部確認はそれぞれ `3/3 成功`、`6/6 成功` が目安。外部SSO成功の証拠にはしない。
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
-待機中は別のアクセスを止める。すべて成功すると `9/9 成功` と表示する。
+待機中は別のアクセスを止める。
 
-### 外部端末から：DNS・HTTPS・4経路
+### 外部端末から：DNS・HTTPS・SSO
 
-手元の PC など、Kong ホスト以外の外部端末から実行する。証明書も検証するため `-k` は付けない。
+Kongホストで、設定に対応する外部確認対象と期待応答を生成する。
 
 ```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard-nobuffer.tmp.ys-method-dev.com/get
-curl --fail-with-body --max-time 180 https://hello-nobuffer-test-ksvc.knative-nobuffer.tmp.ys-method-dev.com/get
+./bin/infra test-plan --format markdown
+./bin/infra test-plan --format shell > .local/external-sso-check.sh
 ```
 
-それぞれ go-httpbin の JSON（`headers.Host` が各公開ホスト） が返れば成功。
-内部確認のゼロスケール待機が終わってから実行する。
+生成されたURLを外部PCから確認する。上記のSSO有効例では6ホストとも未認証はHTTP 302、
+Locationは `/oauth2/start?rd=...` が期待値。HTTP 200を未認証時の成功条件にしない。
+シェルはBashのある外部端末へ渡して実行できる。TLS検証を有効にし、リダイレクトを追わない。
+ブラウザでGoogleログイン後に `/get` へ戻り、go-httpbinのJSONを確認する。
+初回のcallback登録・ログイン確認は [SSO手順](docs/sso.md)を参照。
 
 HTTPS 公開の設定・証明書の発行と更新・診断は [HTTPS の詳細手順](docs/https.md)を参照。
 
@@ -239,9 +255,10 @@ KnativeアプリはService本体の `metadata.labels` に
 明示指定を省略した場合は設定した既定を使う。既定利用の追加2サンプルと3つのKnativeの復帰を
 含め、確認スクリプトは計9項目を確認する。設定例とURLは [4経路の構成](docs/four-routes.md)を参照。
 
-## Google Workspace SSO（任意）
+## Google Workspace SSO
 
-構築時に `sso.enabled` で選択する。ルートのbrowser／api／publicポリシーに従い、
+このREADMEの構築例は `sso.enabled=true`。無効にする場合は明示的にfalseを指定する。
+ルートのbrowser／api／publicポリシーに従い、
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
 有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。
 設定・Google callback登録・検証の制約は [SSO手順](docs/sso.md)を参照。

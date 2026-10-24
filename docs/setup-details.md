@@ -40,8 +40,11 @@ cd infra-kubernetes
 sudo ./bin/infra up
 ```
 
-非対話の場合は `configs/environment/example.json` を `configs/environment/local.json` にコピーして編集し、
-`sudo ./bin/infra up` の1コマンドで構築できる。
+SSOを使う場合はconfigureで有効化をtrueにし、Googleクライアント・Cookie鍵を事前に準備する。
+非対話の場合は [READMEのHTTPS・SSO有効設定](../README.md#インストール)を
+`configs/environment/local.json` に配置して編集する。
+`configs/environment/example.json` はTLS・SSO無効の最小例なので、そのままコピーしてもSSOは有効にならない。
+`sudo ./bin/infra up --require-https` の1コマンドで構築できる。
 `configure` は設定だけを生成し、インストールは行わない。既存ファイルは上書きしない。
 
 `up` は公式 Release のバイナリと SHA-256 リストを照合して k0s を導入し、

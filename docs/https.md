@@ -74,7 +74,8 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
 
 ## 3. 設定
 
-`configs/environment/local.json` に次を設定する。`email` は自分の連絡先に変更する。
+`configs/environment/local.json` にHTTPS・SSO有効の設定を配置する。
+`tls.email` は連絡先、`sso.email_domain` は許可するWorkspaceのメールドメインに変更する。
 
 ```json
 {
@@ -93,6 +94,17 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
     "cloudflare_token_file": ".local/secrets/cloudflare-api-token",
     "acme_server": "https://acme-v02.api.letsencrypt.org/directory",
     "host_https_port": 443
+  },
+  "sso": {
+    "enabled": true,
+    "email_domain": "ys-method.com",
+    "secret_file": ".local/secrets/google-sso.json",
+    "routes": {
+      "standard_domain": "browser",
+      "standard_nobuffer_domain": "browser",
+      "knative_domain": "browser",
+      "knative_nobuffer_domain": "browser"
+    }
   }
 }
 ```
@@ -100,6 +112,8 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
 `cloudflare_zone` は Cloudflare が管理する DNS ゾーンであり、`base_domain` や
 `knative_domain` と同じでなくてよい。
 `tls` の省略時は無効で、従来の HTTP 検証設定はそのまま使える。
+
+SSO用のGoogle callback登録と [Secretファイルの作成](sso.md#secret供給) も構築前に行う。
 
 ## 4. 構築・更新
 

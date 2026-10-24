@@ -37,13 +37,23 @@ class SharedLoginTests(unittest.TestCase):
         proxy = next(item for item in items if item["kind"] == "Deployment")
         args = proxy["spec"]["template"]["spec"]["containers"][0]["args"]
         self.assertIn("--redirect-url=https://auth.knative.example.test/oauth2/callback", args)
-        for argument in ("--cookie-name=__Secure-infra_sso", "--cookie-domains=example.test",
+        for argument in ("--cookie-name=__Secure-infra_sso", "--cookie-domain=example.test",
                          "--cookie-path=/", "--cookie-secure=true", "--cookie-httponly=true",
                          "--cookie-samesite=lax"):
             self.assertIn(argument, args)
         self.assertEqual({arg for arg in args if arg.startswith("--whitelist-domain=")},
                          {"--whitelist-domain=" + host for host in sso.hosts(config)})
         self.assertFalse(any(arg.startswith("--whitelist-domain=.") for arg in args))
+
+    def test_generated_cookie_options_match_pinned_upstream_cli(self):
+        # Contract from upstream, independent of our manifest generation.
+        contract = json.loads((ROOT / "tests/fixtures/oauth2-proxy-cookie-cli.json").read_text())
+        items = self.resources(self.load())
+        proxy = next(item for item in items if item["kind"] == "Deployment")
+        container = proxy["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["image"], contract["image"], "Update the upstream CLI contract when changing versions")
+        generated = {arg[2:].split("=", 1)[0] for arg in container["args"] if arg.startswith("--cookie-")}
+        self.assertFalse(generated - set(contract["flags"]), "Unsupported Cookie CLI flags: " + str(generated - set(contract["flags"])))
 
     def test_auth_route_has_its_own_tls_binding_and_only_auth_host(self):
         config = self.load()

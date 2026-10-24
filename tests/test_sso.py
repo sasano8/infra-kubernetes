@@ -67,7 +67,7 @@ class SSOTests(unittest.TestCase):
         container=proxy['spec']['template']['spec']['containers'][0]
         self.assertIn('--upstream=static://202',container['args'])
         self.assertIn('--redirect-url=https://auth.knative.example.test/oauth2/callback',container['args'])
-        self.assertIn('--cookie-domains=example.test',container['args'])
+        self.assertIn('--cookie-domain=example.test',container['args'])
         self.assertEqual(len(container['env']),3)
         self.assertTrue(all('secretKeyRef' in e['valueFrom'] for e in container['env']))
         callback = next(x for x in manifest['items'] if x['kind']=='Ingress')

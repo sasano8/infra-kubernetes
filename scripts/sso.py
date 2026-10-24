@@ -228,7 +228,7 @@ def render(c, output, route_ids):
     items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
     args = ["--provider=google", "--http-address=0.0.0.0:4180", "--upstream=static://202",
             "--reverse-proxy=true", "--redirect-url=" + origin(c) + "/oauth2/callback", "--set-xauthrequest=true",
-            "--cookie-name=" + COOKIE_NAME, "--cookie-domains=" + s["cookie_domain"], "--cookie-path=/",
+            "--cookie-name=" + COOKIE_NAME, "--cookie-domain=" + s["cookie_domain"], "--cookie-path=/",
             "--cookie-secure=true", "--cookie-httponly=true",
             "--cookie-samesite=lax", "--cookie-expire=8h", "--cookie-refresh=1h", "--skip-provider-button=true",
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",

@@ -1,0 +1,20 @@
+{
+  "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5",
+  "source": "https://github.com/oauth2-proxy/oauth2-proxy/blob/v7.15.5/pkg/apis/options/cookie.go",
+  "flags": [
+    "cookie-name",
+    "cookie-secret",
+    "cookie-secret-file",
+    "cookie-domain",
+    "cookie-path",
+    "cookie-expire",
+    "cookie-refresh",
+    "cookie-secure",
+    "cookie-httponly",
+    "cookie-samesite",
+    "cookie-csrf-per-request",
+    "cookie-csrf-per-request-limit",
+    "cookie-csrf-expire",
+    "cookie-csrf-samesite"
+  ]
+}

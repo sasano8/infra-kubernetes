@@ -32,6 +32,7 @@ local conf = {
   mode = 'browser',
   email_domain = 'example.test',
   https_port = 443,
+  auth_host = 'auth.knative.example.test',
   api_paths = {'/api', '/upload'}
 }
 
@@ -54,7 +55,7 @@ local function setup()
     scheme = 'https',
     method = 'GET',
     path = '/get',
-    cookie = '__Host-infra_sso=session; app=value',
+    cookie = '__Secure-infra_sso=session; app=value',
     headers = {}
   }
   response_headers = setmetatable({}, {
@@ -130,6 +131,8 @@ local function setup()
     }
   }
   conf.mode = 'browser'
+  conf.hosts = {'app.example.test'}
+  conf.auth_host = 'auth.knative.example.test'
   conf.https_port = 443
   conf.api_paths = {'/api', '/upload'}
   conf.forward_id_token = false
@@ -176,7 +179,7 @@ test('authenticated bodyless check and isolated cookies', function()
   handler:access(conf)
 
   assert(result == nil and calls == 1)
-  assert(sent.headers.Cookie == '__Host-infra_sso=session')
+  assert(sent.headers.Cookie == '__Secure-infra_sso=session')
   assert(outgoing.Cookie == ' app=value')
   assert(outgoing['X-Auth-Request-Email'] == 'user@example.test')
   assert(cleared['X-Forwarded-User'])
@@ -337,8 +340,8 @@ end)
 
 test('refresh preserves multiple application and split authentication cookies', function()
   response.headers['Set-Cookie'] = {
-    '__Host-infra_sso_0=new0; Secure',
-    '__Host-infra_sso_1=new1; Secure'
+    '__Secure-infra_sso_0=new0; Secure',
+    '__Secure-infra_sso_1=new1; Secure'
   }
   handler:access(conf)
 
@@ -349,7 +352,7 @@ test('refresh preserves multiple application and split authentication cookies', 
   local cookies = outgoing['Set-Cookie']
   assert(#cookies == 4, 'expected both application cookies and both split authentication cookies')
   assert(cookies[1] == 'app_session=old; Secure' and cookies[2] == 'app_csrf=token; Secure')
-  assert(cookies[3] == '__Host-infra_sso_0=new0; Secure' and cookies[4] == '__Host-infra_sso_1=new1; Secure')
+  assert(cookies[3] == '__Secure-infra_sso_0=new0; Secure' and cookies[4] == '__Secure-infra_sso_1=new1; Secure')
 end)
 
 test('application cookies are unchanged when authentication does not refresh', function()
@@ -371,6 +374,8 @@ end)
 
 test('oauth callbacks are the only public auth endpoints', function()
   conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
   request.path = '/oauth2/auth'
 
   handler:access(conf)
@@ -380,17 +385,21 @@ end)
 
 test('oauth callback uses the effective HTTPS authority on port 443', function()
   conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
   request.path = '/oauth2/callback'
 
   handler:access(conf)
 
   assert(result == nil and calls == 0)
-  assert(oauth_callback_uri() == 'https://app.example.test/oauth2/callback')
+  assert(oauth_callback_uri() == 'https://auth.knative.example.test/oauth2/callback')
   assert(effective_upstream_headers()['X-Forwarded-Port'] == '443')
 end)
 
 test('oauth start preserves port 9443 in the effective callback authority', function()
   conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
   conf.https_port = 9443
   request.path = '/oauth2/start'
   request.authority = 'app.example.test:9443'
@@ -400,13 +409,15 @@ test('oauth start preserves port 9443 in the effective callback authority', func
 
   assert(result == nil and calls == 0)
   assert(
-    oauth_callback_uri() == 'https://app.example.test:9443/oauth2/callback',
+    oauth_callback_uri() == 'https://auth.knative.example.test:9443/oauth2/callback',
     'effective X-Forwarded-Host lost the HTTPS port'
   )
 end)
 
 test('oauth callback preserves port 9443 in effective forwarded headers', function()
   conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
   conf.https_port = 9443
   request.path = '/oauth2/callback'
   request.authority = 'app.example.test:9443'
@@ -416,12 +427,14 @@ test('oauth callback preserves port 9443 in effective forwarded headers', functi
 
   assert(result == nil and calls == 0)
   local headers = effective_upstream_headers()
-  assert(headers['X-Forwarded-Host'] == 'app.example.test:9443', 'Nginx still forwards the portless core host')
+  assert(headers['X-Forwarded-Host'] == 'auth.knative.example.test:9443', 'Nginx still forwards the portless core host')
   assert(headers['X-Forwarded-Proto'] == 'https' and headers['X-Forwarded-Port'] == '9443')
 end)
 
 test('oauth callback discards spoofed forwarding headers from a trusted peer', function()
   conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
   conf.https_port = 9443
   request.path = '/oauth2/callback'
   request.authority = 'app.example.test:9443'
@@ -440,7 +453,7 @@ test('oauth callback discards spoofed forwarding headers from a trusted peer', f
 
   assert(result == nil and calls == 0)
   assert(
-    oauth_callback_uri() == 'https://app.example.test:9443/oauth2/callback',
+    oauth_callback_uri() == 'https://auth.knative.example.test:9443/oauth2/callback',
     'spoofed authority survived in effective Nginx headers'
   )
   local headers = effective_upstream_headers()
@@ -521,6 +534,8 @@ for _, mode in ipairs({'public', 'oauth'}) do
     conf.forward_id_token = true
     conf.id_token_header = 'X-SSO-Identity'
     if mode == 'oauth' then
+      request.host = conf.auth_host
+      conf.hosts = {conf.auth_host}
       request.path = '/oauth2/callback'
     end
     request.headers['x-sso-identity'] = 'spoofed'
@@ -619,7 +634,7 @@ end)
 test('refreshed ID token and split cookies are forwarded to their separate destinations', function()
   conf.forward_id_token = true
   response.headers.Authorization = 'Bearer ' .. id_token
-  response.headers['Set-Cookie'] = {'__Host-infra_sso_0=refresh', '__Host-infra_sso_1=refresh'}
+  response.headers['Set-Cookie'] = {'__Secure-infra_sso_0=refresh', '__Secure-infra_sso_1=refresh'}
 
   handler:access(conf)
   handler:header_filter(conf)
@@ -651,6 +666,67 @@ test('plugin schema rejects reserved and malformed ID token headers', function()
   for _, header in ipairs({'X-Forwarded-Id-Token', 'x-forwarded-id-token', 'X-SSO-ID-Token', 'x-company-identity'}) do
     assert(validator(header), 'dedicated ID token header rejected')
   end
+end)
+
+test('all application hosts use one login origin and keep their own return URL', function()
+  response.status = 401
+  conf.hosts = {'app.example.test', 'other.knative.example.test'}
+  for _, host in ipairs(conf.hosts) do
+    request.host = host
+    handler:access(conf)
+    local target = 'https://' .. host .. '/get?q=1'
+    assert(result.status == 302)
+    assert(result.headers.Location == 'https://auth.knative.example.test/oauth2/start?rd=' .. ngx.escape_uri(target))
+  end
+end)
+
+test('the shared session is checked for both standard and Knative hosts', function()
+  conf.hosts = {'app.example.test', 'other.knative.example.test'}
+  for _, host in ipairs(conf.hosts) do
+    request.host = host
+    handler:access(conf)
+    assert(result == nil and sent.headers.Cookie == '__Secure-infra_sso=session')
+    assert(outgoing.Cookie == ' app=value')
+  end
+  assert(calls == 2)
+end)
+
+test('old host-only cookies are stripped but cannot authenticate a request', function()
+  request.cookie = '__Host-infra_sso=old; __Host-infra_sso_0=old-part; app=value'
+  response.status = 401
+  handler:access(conf)
+  assert(result.status == 302 and sent.headers.Cookie == '')
+  assert(outgoing.Cookie == ' app=value')
+end)
+
+test('shared split session and CSRF cookies never reach an application', function()
+  request.cookie = '__Secure-infra_sso_0=part0; __Secure-infra_sso_1=part1; __Secure-infra_sso_csrf=csrf; app=value'
+  handler:access(conf)
+  assert(result == nil and outgoing.Cookie == ' app=value')
+  assert(sent.headers.Cookie:find('__Secure-infra_sso_0=part0', 1, true))
+  assert(sent.headers.Cookie:find('__Secure-infra_sso_1=part1', 1, true))
+end)
+
+test('OAuth paths are refused on an application host even if allowlisted', function()
+  conf.mode = 'oauth'
+  conf.hosts = {'app.example.test', conf.auth_host}
+  request.path = '/oauth2/callback'
+  handler:access(conf)
+  assert(result.status == 403 and calls == 0)
+end)
+
+test('a forged forwarding host cannot change the central login or return host', function()
+  response.status = 401
+  request.headers['x-forwarded-host'] = 'evil.test'
+  handler:access(conf)
+  assert(result.headers.Location == 'https://auth.knative.example.test/oauth2/start?rd=' .. ngx.escape_uri('https://app.example.test/get?q=1'))
+end)
+
+test('central login and return URL both retain the configured HTTPS port', function()
+  conf.https_port = 9443
+  response.status = 401
+  handler:access(conf)
+  assert(result.headers.Location == 'https://auth.knative.example.test:9443/oauth2/start?rd=' .. ngx.escape_uri('https://app.example.test:9443/get?q=1'))
 end)
 
 print('Lua handler tests: ' .. count .. ' passed')

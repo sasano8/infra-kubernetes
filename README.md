@@ -122,6 +122,8 @@ cat > configs/environment/local.json <<'EOF'
   "sso": {
     "enabled": true,
     "email_domain": "ys-method.com",
+    "auth_host": "auth.knative.tmp.ys-method-dev.com",
+    "cookie_domain": "tmp.ys-method-dev.com",
     "secret_file": ".local/secrets/google-sso.json",
     "routes": {
       "standard_domain": "browser",
@@ -155,7 +157,7 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 )
 ```
 
-Google OAuthクライアントへ各公開ホストのcallback URLを登録し、
+Google OAuthクライアントへ `https://auth.knative.tmp.ys-method-dev.com/oauth2/callback` を登録し、
 [SSOのSecret供給手順](docs/sso.md#secret供給)で `.local/secrets/google-sso.json` を権限600で作成する。
 GoogleクライアントID・クライアントシークレット・Cookie鍵が必要。
 `make configure-secret-google-sso` で非表示入力して作成・変更できる。変更時のCookie鍵は維持する。
@@ -220,7 +222,7 @@ Kongホストで、設定に対応する外部確認対象と期待応答を生�
 ```
 
 生成されたURLを外部PCから確認する。上記のSSO有効例では6ホストとも未認証はHTTP 302、
-Locationは `/oauth2/start?rd=...` が期待値。HTTP 200を未認証時の成功条件にしない。
+Locationは `https://auth.knative.tmp.ys-method-dev.com/oauth2/start?rd=...` が期待値。HTTP 200を未認証時の成功条件にしない。
 シェルはBashのある外部端末へ渡して実行できる。TLS検証を有効にし、リダイレクトを追わない。
 ブラウザでGoogleログイン後に `/get` へ戻り、go-httpbinのJSONを確認する。
 初回のcallback登録・ログイン確認は [SSO手順](docs/sso.md)を参照。

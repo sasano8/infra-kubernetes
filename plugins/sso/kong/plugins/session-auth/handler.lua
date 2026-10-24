@@ -1,5 +1,5 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.1.0" }
+local Handler = { PRIORITY = 1500, VERSION = "1.2.0" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
@@ -33,6 +33,7 @@ function Handler:access(conf)
   ngx.var.upstream_x_forwarded_host = authority
   ngx.var.upstream_x_forwarded_port = tostring(conf.https_port)
   if conf.mode == "oauth" then
+    if host ~= conf.auth_host then return deny(403) end
     local path = kong.request.get_path()
     local public = { ["/oauth2/start"]=true, ["/oauth2/callback"]=true,
                      ["/oauth2/sign_in"]=true, ["/oauth2/sign_out"]=true }
@@ -42,9 +43,12 @@ function Handler:access(conf)
   local auth_cookies, app_cookies = {}, {}
   for part in (kong.request.get_header("Cookie") or ""):gmatch("[^;]+") do
     local name = part:match("^%s*([^=]+)=") or ""
-    if name:sub(1, #"__Host-infra_sso") == "__Host-infra_sso" then
+    if name:sub(1, #"__Secure-infra_sso") == "__Secure-infra_sso" then
       auth_cookies[#auth_cookies+1] = part
-    else app_cookies[#app_cookies+1] = part end
+    elseif name:sub(1, #"__Host-infra_sso") ~= "__Host-infra_sso" then
+      -- Drop old host-only sessions during migration, without using them for auth.
+      app_cookies[#app_cookies+1] = part
+    end
   end
   -- Do not expose the SSO session to applications, echo endpoints, or application logs.
   kong.service.request.clear_header("Cookie")
@@ -92,7 +96,8 @@ function Handler:access(conf)
   end
   if api then return deny(401) end
   local target = "https://" .. authority .. kong.request.get_path_with_query()
-  return kong.response.exit(302, "", { Location = "/oauth2/start?rd=" .. ngx.escape_uri(target),
+  local auth_authority = conf.auth_host .. (conf.https_port == 443 and "" or ":" .. conf.https_port)
+  return kong.response.exit(302, "", { Location = "https://" .. auth_authority .. "/oauth2/start?rd=" .. ngx.escape_uri(target),
                                        ["Cache-Control"] = "no-store" })
 end
 function Handler:header_filter(conf)

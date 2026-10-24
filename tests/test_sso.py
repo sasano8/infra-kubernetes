@@ -66,12 +66,12 @@ class SSOTests(unittest.TestCase):
         proxy = next(x for x in manifest['items'] if x['kind']=='Deployment')
         container=proxy['spec']['template']['spec']['containers'][0]
         self.assertIn('--upstream=static://202',container['args'])
-        self.assertIn('--redirect-url=/oauth2/callback',container['args'])
-        self.assertFalse(any('cookie-domain' in a for a in container['args']))
+        self.assertIn('--redirect-url=https://auth.knative.example.test/oauth2/callback',container['args'])
+        self.assertIn('--cookie-domains=example.test',container['args'])
         self.assertEqual(len(container['env']),3)
         self.assertTrue(all('secretKeyRef' in e['valueFrom'] for e in container['env']))
         callback = next(x for x in manifest['items'] if x['kind']=='Ingress')
-        self.assertEqual(len(callback['spec']['rules']),6)
+        self.assertEqual(len(callback['spec']['rules']),1)
         self.assertTrue(any(x['kind']=='NetworkPolicy' for x in manifest['items']))
 
     def test_off_rerender_clears_auth_and_does_not_need_secret(self):
@@ -183,7 +183,7 @@ class SSOTests(unittest.TestCase):
         fake.chmod(0o755)
         log=self.path/'header-path'
         plan=sso.test_plan(self.config(),'shell')
-        for location, success in (('/oauth2/start?rd=safe',True),('https://evil.test/',False)):
+        for location, success in (('https://auth.knative.example.test/oauth2/start?rd=safe',True),('/oauth2/start?rd=safe',False),('https://evil.test/',False)):
             env=dict(os.environ,PATH=str(self.path)+os.pathsep+os.environ['PATH'],FAKE_LOCATION=location,FIXTURE_LOG=str(log))
             result=subprocess.run(['bash'],input=plan,text=True,env=env,capture_output=True)
             self.assertEqual(result.returncode==0,success)

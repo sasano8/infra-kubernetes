@@ -18,7 +18,35 @@ SECRET = "google-sso"
 KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET")
 ID_TOKEN_HEADER = "X-Forwarded-Id-Token"
 DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {}, "api_paths": ["/api", "/upload"],
-            "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER}
+            "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER, "auth_host": "", "cookie_domain": ""}
+COOKIE_NAME = "__Secure-infra_sso"
+
+
+def origin(c):
+    port = c["tls"]["host_https_port"] or 443
+    return "https://" + c["sso"]["auth_host"] + ("" if port == 443 else ":" + str(port))
+
+
+def common_domain(domains):
+    labels = list(zip(*(reversed(domain.split(".")) for domain in domains)))
+    common = []
+    for parts in labels:
+        if len(set(parts)) != 1:
+            break
+        common.append(parts[0])
+    return ".".join(reversed(common))
+
+
+def auth_certificate(c):
+    # Reuse an existing wildcard certificate; it covers exactly one child label.
+    for route, secret in (("standard_domain", "standard-tls"),
+                          ("standard_nobuffer_domain", "standard-nobuffer-tls"),
+                          ("knative_domain", "knative-wildcard-tls"),
+                          ("knative_nobuffer_domain", "knative-nobuffer-tls")):
+        host, domain = c["sso"]["auth_host"], c[route]
+        if host.endswith("." + domain) and "." not in host[:-(len(domain) + 1)]:
+            return secret
+    raise ValueError("sso.auth_host は既存の4経路ドメインの直下に指定してください（ワイルドカード証明書を使用）")
 
 
 def valid_id_token_header(header):
@@ -59,6 +87,21 @@ def normalize(c, routes):
         raise ValueError("SSO有効時は tls.enabled=true が必須です")
     if not isinstance(s["email_domain"], str) or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in s["email_domain"].split(".")) or "." not in s["email_domain"]:
         raise ValueError("sso.email_domain に許可するGoogle Workspaceメールドメインを指定してください")
+    domains = [c[route] for route in routes]
+    if s["auth_host"] == "":
+        s["auth_host"] = "auth." + c["knative_domain"]
+    if s["cookie_domain"] == "":
+        s["cookie_domain"] = c.get("base_domain") or common_domain(domains)
+    for key in ("auth_host", "cookie_domain"):
+        value = s[key]
+        if (not isinstance(value, str) or len(value) > 253 or "." not in value
+                or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in value.split("."))):
+            raise ValueError("sso." + key + " は小文字のDNS名を指定してください（先頭のドットは不要）")
+    if any(not domain.endswith("." + s["cookie_domain"]) for domain in domains + [s["auth_host"]]):
+        raise ValueError("sso.cookie_domain は認証ホストと全4経路に共通する親ドメインを指定してください")
+    if s["auth_host"] in hosts(c):
+        raise ValueError("sso.auth_host はアプリの公開ホストと区別してください")
+    auth_certificate(c)
 
 
 def hosts(c):
@@ -174,6 +217,7 @@ def render(c, output, route_ids):
     def plugin(name, mode, allowed, forward_id_token=False):
         return resource("configuration.konghq.com/v1", "KongPlugin", name, "test", plugin="session-auth",
                         config={"mode": mode, "hosts": allowed, "email_domain": s["email_domain"],
+                                "auth_host": s["auth_host"],
                                 "https_port": port, "api_paths": s["api_paths"],
                                 "forward_id_token": forward_id_token, "id_token_header": s["id_token_header"]})
     annotations = {}
@@ -181,10 +225,11 @@ def render(c, output, route_ids):
         name = "sso-" + route.replace("_", "-")
         items.append(plugin(name, s["routes"].get(route, "browser"), all_hosts, route in s["id_token_routes"]))
         annotations[route] = '    konghq.com/plugins: "' + name + '"'
-    items.append(plugin("sso-oauth-endpoints", "oauth", all_hosts))
+    items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
     args = ["--provider=google", "--http-address=0.0.0.0:4180", "--upstream=static://202",
-            "--reverse-proxy=true", "--redirect-url=/oauth2/callback", "--set-xauthrequest=true",
-            "--cookie-name=__Host-infra_sso", "--cookie-secure=true", "--cookie-httponly=true",
+            "--reverse-proxy=true", "--redirect-url=" + origin(c) + "/oauth2/callback", "--set-xauthrequest=true",
+            "--cookie-name=" + COOKIE_NAME, "--cookie-domains=" + s["cookie_domain"], "--cookie-path=/",
+            "--cookie-secure=true", "--cookie-httponly=true",
             "--cookie-samesite=lax", "--cookie-expire=8h", "--cookie-refresh=1h", "--skip-provider-button=true",
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",
             "--pass-access-token=false", "--pass-authorization-header=false", "--request-logging=false"]
@@ -205,12 +250,13 @@ def render(c, output, route_ids):
     items.append(resource("v1", "Service", "oauth2-proxy", "test", spec={"selector": {"app": "oauth2-proxy"},
                         "ports": [{"name": "http", "port": 4180, "targetPort": "http"}]}))
     rules = [{"host": h, "http": {"paths": [{"path": "/oauth2", "pathType": "Prefix", "backend": {
-        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in all_hosts]
+        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in [s["auth_host"]]]
     ingress = resource("networking.k8s.io/v1", "Ingress", "oauth2-proxy", "test", spec={
-        "ingressClassName": "kong-ingress", "rules": rules})
+        "ingressClassName": "kong-ingress", "rules": rules,
+        "tls": [{"hosts": [s["auth_host"]], "secretName": auth_certificate(c)}]})
     ingress["metadata"]["annotations"] = {"konghq.com/preserve-host": "true", "konghq.com/strip-path": "false",
                                           "konghq.com/plugins": "sso-oauth-endpoints"}
-    # App Ingresses supply certificates for the identical hosts. Do not invent a second issuer/callback domain.
+    # Authentication is a Kong route to oauth2-proxy, not a Knative application.
     items.append(ingress)
     items.append(resource("networking.k8s.io/v1", "NetworkPolicy", "oauth2-proxy", "test", spec={
         "podSelector": {"matchLabels": {"app": "oauth2-proxy"}}, "policyTypes": ["Ingress"],
@@ -311,10 +357,11 @@ def test_plan(c, format):
             lines += ["# " + route + " / " + mode,
                       'status=$(' + shlex.join(curl) + ' --dump-header "$headers")', 'test "$status" = ' + shlex.quote(expected)]
             if expected == "302":
-                code = "import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text().splitlines(); locations=[l.split(':',1)[1].strip() for l in lines if l.lower().startswith('location:')]; assert len(locations)==1 and locations[0].startswith('/oauth2/start?rd=')"
+                prefix = origin(c) + "/oauth2/start?rd="
+                code = "import pathlib,sys; lines=pathlib.Path(sys.argv[1]).read_text().splitlines(); locations=[l.split(':',1)[1].strip() for l in lines if l.lower().startswith('location:')]; assert len(locations)==1 and locations[0].startswith(" + repr(prefix) + ")"
                 lines.append('python3 -c ' + shlex.quote(code) + ' "$headers"')
         else:
-            location = " / Location: /oauth2/start?rd=..." if expected == "302" else ""
+            location = " / Location: " + origin(c) + "/oauth2/start?rd=..." if expected == "302" else ""
             lines += ["- " + url + " — 未認証期待HTTP " + expected + location + "（" + mode + "）"]
     if c["sso"]["enabled"]:
         lines += ["# 手動確認: Googleログイン→callback→元URL、期限切れ、ログアウト、許可外403、認証停止503。",

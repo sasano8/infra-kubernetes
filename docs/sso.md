@@ -33,6 +33,8 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
 "sso": {
   "enabled": true,
   "email_domain": "your-workspace.example",
+  "auth_host": "auth.knative.tmp.ys-method-dev.com",
+  "cookie_domain": "tmp.ys-method-dev.com",
   "secret_file": ".local/secrets/google-sso.json",
   "routes": {
     "standard_domain": "browser",
@@ -46,7 +48,8 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
 }
 ```
 
-`bin/infra configure` でも有効／無効、許可メールドメイン、Secretファイルを設定できる。
+`bin/infra configure` でも有効／無効、許可メールドメイン、Secretファイル、認証ホスト、
+Cookie共有親ドメインを設定できる。
 有効時はHTTPSが必須で、TLS設定も入力する。`email_domain`は従来の
 `SSO_EMAIL_DOMAIN`に対応する非機密設定。
 
@@ -67,25 +70,67 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
 
 ## Googleクライアント・Cookie
 
-6つのサンプル公開Hostそれぞれに `/oauth2/callback` を作る。
-Google OAuth Webクライアントへ、実際に使うすべてのHTTPS callbackを登録する。
-非標準HTTPSポートを使う場合はポートも含める。
-設定から生成した `sso.json` のIngress rulesと `test-plan` のHostを照合する。
+認証専用ホストにcallbackを集約する。READMEの構成では、Google OAuth Webクライアントの
+**承認済みのリダイレクトURI**へ次の1件だけを登録する。
 
-callbackは固定のパスを指定し、oauth2-proxyは信頼したHostから完全なURLを構成する。
+```text
+https://auth.knative.tmp.ys-method-dev.com/oauth2/callback
+```
+
+`auth_host` は既定で `auth.<knative_domain>`。既存4経路ドメインの直下のホストへ変更できる。
+Kongがこのホストの `/oauth2` をoauth2-proxyへ転送し、対応する既存ワイルドカード証明書を
+Ingressに明示する。Knative Serviceは作らない。既存のワイルドカードDNSがKongへ向いていれば
+認証専用Aレコードは不要。ただし同名レコードがある場合は到達先も確認する。
+`cookie_domain` は既定で `base_domain`、省略時は4経路の共通親ドメイン。
+認証ホストと全4経路がこの共有範囲に入ることを設定検証する。
+非標準HTTPSポートを使う場合はGoogleへ登録するURLにもそのポートを含める。
+
+oauth2-proxyのredirect URLはこの完全なURLに固定する。アプリへの未認証GET／HEADは
+`https://<auth_host>/oauth2/start?rd=<元のHTTPS URL>` へ302になり、Googleログイン後に
+元のアプリのパス・クエリへ戻る。戻り先は既存の6つの公開Hostと公開ポートだけを
+allowlistへ登録し、親ドメイン全体を戻り先として許可しない。
+アプリ追加時は公開Hostのallowlistにも追加する。Googleのcallback追加登録は不要。
 KongプラグインがHTTPS、許可Host、公開してよいOAuthエンドポイントを確認し、
-転送ヘッダーを上書きする。戻り先は許可した実Hostと公開ポートのみに限定する。
-Kong 3.9.1はNginx変数からX-Forwarded-*を再生成するため、プラグインは
-`upstream_x_forwarded_host`／`proto`／`port`も設定する。この連携は採用版のKong内部実装に依存する。
-Kong更新時はカスタムHTTPSポートを含むcallbackを実コンテナでも確認する。
+転送ヘッダーを上書きする。Kong 3.9.1の `upstream_x_forwarded_host`／`proto`／`port` にも
+反映するため、Kong更新時はカスタムHTTPSポートを含めて実コンテナでも確認する。
 `/oauth2/auth`、`/ping`等は外部OAuthルートから公開しない。
 Googleの許可ユーザー・組織・同意画面の公開範囲も設定する。メールドメイン制限だけで
 アプリ内部の管理権限が付くわけではない。
 
-Cookieは `__Host-infra_sso`、Secure、HttpOnly、SameSite=Lax、Path=/、有効期限8時間、
-更新間隔1時間。親ドメイン共有はしない。Hostごとにcallbackとセッションが成立する。
-Google側のログイン済みセッションは利用され得るが、全Hostの同時ログイン／ログアウトは保証しない。
-ログアウトは対象Hostの `/oauth2/sign_out`。Googleアカウント全体のログアウトではない。
+Cookieは `__Secure-infra_sso`、Domain=`tmp.ys-method-dev.com`、Path=/、Secure、HttpOnly、
+SameSite=Lax、有効期限8時間、更新間隔1時間。親Domainを指定するため `__Host-` は使わない。
+同じCookieで通常／Knative・buffer／nobufferの各アプリを認証する。
+アプリ独自のCookieは別名・ホスト限定とし、SSO Cookieと分割CookieはKongでアプリへの転送から除去する。
+配下の全アプリを同じ信頼範囲で管理し、アプリから同名の親Domain Cookieを設定しない。
+共有Cookieはブラウザから配下全ホストへ送られるため、独立した信頼境界のアプリはこの配下へ置かない。
+ログアウトは認証ホストの `/oauth2/sign_out`。全アプリ共通のSSO Cookieを削除するが、
+Googleアカウント自体や各アプリ独自のセッションをログアウトするものではない。
+
+### 既存のホスト別callbackから移行する
+
+1. Googleに上記の共通callbackを登録する。旧callbackは切替確認が終わるまで残してよい。
+2. `configs/environment/local.json` の既存sso設定へ次の2項目を追加する。
+
+   ```json
+   "auth_host": "auth.knative.tmp.ys-method-dev.com",
+   "cookie_domain": "tmp.ys-method-dev.com"
+   ```
+
+3. ソースを更新し、メンテナンス中に設定・Lua・Kongをまとめて反映する。
+
+   ```bash
+   sudo ./bin/infra up --require-https
+   ```
+
+4. シークレットウィンドウで通常アプリからログインし、元の `/get` に戻ることを確認する。
+   続いてKnative・nobufferの各アプリを開き、Googleへの再リダイレクトなしで表示できることを確認する。
+   共通ログアウトと、再度アクセスしたときのログイン誘導も確認する。
+5. 確認後にGoogle側の旧アプリ別callback登録を削除できる。
+
+GoogleクライアントとCookie暗号鍵の変更は不要。Cookie名が変わるので初回は再ログインになる。
+残った旧 `__Host-infra_sso` Cookieは認証に利用せず、アプリへの転送からも除去する。
+新しい設定・コードの切替は原子的ではないため、反映途中の挙動を運用成功と判断しない。
+この作業環境から実クラスタへの反映とGoogleログイン確認は実施していない。
 
 ## IDトークンの転送
 
@@ -134,8 +179,8 @@ Google公開鍵取得のためのHTTPS接続もアプリ側に必要。
 
 トークンはアプリログへ出力しない。go-httpbinの `/get` は受信ヘッダーをレスポンスへ含めるため、
 実トークンを転送するルートで使うとトークンが応答にも含まれる。受信・検証結果だけを返すアプリで確認する。
-実Kong／Google／受信アプリの結合検証は未実施。共通callback・共有Cookieへの変更も未実装で、
-この転送設定によって別ホストのセッションが自動共有されるわけではない。
+実Kong／Google／受信アプリの結合検証は未実施。共有セッションでも、IDトークンを転送する
+公開ルートは `id_token_routes` に指定したものだけ。
 
 ## Secret供給
 
@@ -164,8 +209,8 @@ make configure-secret-google-sso
 ファイルは権限600の一時ファイルから置き換え、入力取消や保存失敗で既存JSONを壊さない。
 `secret_file` を省略した外部管理構成ではローカルファイルを作成しない。
 
-Google側のcallback登録も済ませてから構築する。
-READMEの例では6つの公開ホストすべての `/oauth2/callback` を登録する。
+Google側の共通callback登録も済ませてから構築する。
+READMEの例では認証専用ホストの `/oauth2/callback` を1つ登録する。
 初回の一括構築は `make up` で行える。
 
 ### 資格情報だけを既存クラスタへ反映する
@@ -258,7 +303,7 @@ KongコンテナやGoogleとの実通信はこのテストの対象外。
 
 プラン生成は通信・Secret取得を行わない。生成したshellを別ネットワークの端末で実行する。
 リダイレクトを追わず期待ステータスを確認し、TLS検証を無効にしない。
-ブラウザでは各Hostのログイン、callback、元URL／クエリ、許可外、期限切れ、ログアウトを確認する。
+ブラウザでは共通callback、元URL／クエリ、別Hostへの認証共有、許可外、期限切れ、共通ログアウトを確認する。
 認証済みで [ストリーミング検証](streaming.md)を実施する。API送信は先にログインし、
 未認証本文の自動再送・再開を期待しない。S3署名認証やBearer認証は別方式として未実装。
 ブラウザCookieをcurlへコピーして共有ログに残す手順は用意しない。

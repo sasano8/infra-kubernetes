@@ -98,6 +98,8 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
   "sso": {
     "enabled": true,
     "email_domain": "ys-method.com",
+    "auth_host": "auth.knative.tmp.ys-method-dev.com",
+    "cookie_domain": "tmp.ys-method-dev.com",
     "secret_file": ".local/secrets/google-sso.json",
     "routes": {
       "standard_domain": "browser",

@@ -164,6 +164,8 @@ def configure(path):
             c["tls"][field] = input(prompt + ": ").strip()
         c["sso"]["email_domain"] = input("SSO_EMAIL_DOMAIN（許可メールドメイン）: ").strip()
         c["sso"]["secret_file"] = input("SSO Secret JSONファイル（既存Secretなら空欄）: ").strip()
+        c["sso"]["auth_host"] = input("認証専用ホスト [auth." + c["knative_domain"] + "]: ").strip()
+        c["sso"]["cookie_domain"] = input("Cookie共有親ドメイン [" + (c["base_domain"] or "4経路の共通親ドメイン") + "]: ").strip()
     # Validate before creating the destination.
     with tempfile.TemporaryDirectory() as tmp:
         candidate = Path(tmp) / "config.json"

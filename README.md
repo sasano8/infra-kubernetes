@@ -148,7 +148,15 @@ git clone https://github.com/sasano8/infra-kubernetes.git
 cd infra-kubernetes
 ```
 
-HTTPS・Google Workspace SSOを有効にした設定ファイルを配置する。
+Argo CD・Infisicalの導入には、**Helm 3.13以降の3系**も必要。
+[Helm公式の導入手順](https://helm.sh/docs/intro/install/)に従って配置し、sudoからも利用できることを確認する。
+
+```bash
+helm version --short
+sudo helm version --short
+```
+
+HTTPS・Google Workspace SSO・Argo CD・Infisical・pinnerを有効にした設定ファイルを配置する。
 `tls.email` は連絡先、`sso.email_domain` はログインを許可するWorkspaceのメールドメインに変更する。
 
 ```bash
@@ -181,6 +189,15 @@ cat > configs/environment/local.json <<'EOF'
       "knative_domain": "browser",
       "knative_nobuffer_domain": "browser"
     }
+  },
+  "plugins": {
+    "argocd": {"enabled": true},
+    "infisical": {"enabled": true},
+    "pinner": {
+      "enabled": true,
+      "namespaces": ["test"],
+      "dry_run": true
+    }
   }
 }
 EOF
@@ -188,6 +205,14 @@ EOF
 
 `base_domain` は共通の参照情報。`knative_domain` は Knative 用、
 `standard_domain` は通常経路のベースドメインとして個別指定する。
+
+この例の`make up`は、基本構成に続いて **Argo CD → Infisical → pinner** を導入する。
+`plugins`省略時、または各`enabled=false`の場合、その追加pluginは導入・更新しない。
+**ESOは`up`に含めず**、必要な場合だけ`plugin install external-secrets`で導入する。
+Argo CDのApplication・Git接続、Infisicalの接続・Secret同期定義は別管理。
+pinnerはこの例では`test`を対象にdry-runで起動する。全Namespaceでannotationを使う運用への変更は
+[SAS-82](https://linear.app/sasano8/issue/SAS-82)で未実装のため、現行設定を記載している。
+個別導入・待機・管理UIへの接続方法は [プラットフォームplugin](docs/platform-plugins.md)を参照。
 
 続いて Cloudflare API トークンを配置する。
 [トークンの取得手順](docs/https.md#2-cloudflare-api-トークンを配置)で作成し、

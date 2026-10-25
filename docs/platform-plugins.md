@@ -68,9 +68,8 @@ Infisical／ESOはHelmの`--namespace`でRoleBindingやwebhookのnamespaceも揃
   "external-secrets": {},
   "pinner": {
     "enabled": true,
-    "namespaces": ["test"],
     "image": "ghcr.io/sasano8/pinner:latest",
-    "dry_run": true,
+    "dry_run": false,
     "interval": "5m",
     "registry_secret": ""
   }
@@ -82,7 +81,7 @@ sudo ./bin/infra up --require-https
 ```
 
 既存のKong／サンプル配備後に、有効な標準pluginをArgo CD → Infisical → pinnerの順で導入・待機する。
-既定ではpinnerのpull／triggerともdry-runで動き、変更を加えず観測する。
+既定ではpinnerのpull／triggerとも実処理を行う。観測だけにしたい場合のみ`dry_run=true`を明示する。
 `enabled=false`は自動削除の指示ではない。ESOの`enabled`指定は設定エラーにする。
 
 ## Argo CDを使い始める
@@ -114,11 +113,13 @@ Operator生成のSecretをArgo CDで別途作成・pruneしない。
 
 ## pinnerとArgo CDの共存
 
-pinnerは指定Namespaceのannotation付きワークロードだけを検出する。
-Namespaceは先に用意する。各対象NamespaceへRole／RoleBindingを作り、
-クラスタ全体でのpatch・Pod削除は許可しない。Nodeのget/listだけはクラスタ権限を必要とする。
-Namespaceごとにpull／triggerのプロセスを分け、対象範囲をCLIでも制限する。
-単一replica・Recreateとし、pinner自身には自動更新annotationを付けない。
+pinnerは元のinfra-k0sと同じく、全Namespaceでannotation付きワークロードを検出する。
+`--namespace`は指定せず、pull／triggerをそれぞれ1プロセス起動する。
+読み取りと更新・Pod削除の権限をClusterRoleBindingで全Namespaceへ与える。
+対象選択はリソースのannotationで行い、Namespaceの追加登録は不要。
+短命pull Podの作成先だけは`--pull-namespace=pinner-system`で指定する。これは監視範囲の制限ではない。
+単一replica・Recreateとし、元の構成と同じくpinner自身にも
+`floatingtag-pinner/enabled: "true"`と`floatingtag-pinner/on-mismatch: delete-pods`を付ける。
 
 利用側のDeployment／StatefulSet／DaemonSet／Knative Service本体へ次を設定する。
 
@@ -140,8 +141,9 @@ selfHealと手動syncの両方で巻き戻さないようにする。既存のig
 イメージやmetadata全体を無視せず、通常のGit変更による更新は維持する。
 Applicationは別管理のため、このCLIから自動patchしない。
 
-dry-runのログ確認と上記Application設定後、`plugins.pinner.dry_run=false`にして
-`plugin install pinner`で再適用する。`plugin wait pinner`はPodの稼働確認であり、
+既定は`dry_run=false`で実際に処理する。`dry_run=true`を明示した場合だけ、pull用Podの作成と
+triggerのrollout／Pod削除を行わずログに出す。pinner本体の導入はdry-runにならない。
+`plugin wait pinner`はPodの稼働確認であり、
 レジストリ照会・タグ更新の反映成功まで保証しない。
 タグの更新→検出→rollout／Revision→アプリ応答、無変更時の再起動抑止、Argo CDによる
 巻き戻しがないことを、利用側アプリで実測する。
@@ -152,8 +154,17 @@ dry-runのログ確認と上記Application設定後、`plugins.pinner.dry_run=fa
 これはdigest照会の認証用で、ノードによるイメージpullの認証は別途必要。
 pinnerの短命pull PodへアプリのimagePullSecretsをコピーする実装ではない。
 
-`namespaces`から対象を外して再適用すると、配備記録にある旧RoleBinding／Roleを所有確認して削除する。
-対象Namespace・アプリ・Secretそのものは削除しない。
+### 以前の制限付き設定からの切替
+
+既存local.jsonの`plugins.pinner`から`namespaces`を削除する。旧READMEの`dry_run: true`が
+残っている場合は削除するかfalseに変更する。例えば次だけで元の運用になる。
+
+```json
+"pinner": {"enabled": true}
+```
+
+再適用すると全Namespace用の権限を追加し、旧配備記録に残るNamespace別RoleBinding／Roleと
+旧Node読み取り権限・配備記録を所有確認して整理する。アプリ・Namespaceそのものは削除しない。
 
 ## 管理と検証の範囲
 
@@ -162,7 +173,7 @@ Helm releaseとpinnerのリソースは、従来のサンプル用prune／remove
 対象Namespaceの削除・変更時は、別管理のアプリ・Secret・CRとplugin権限も確認する。
 Helm本体の撤去・共有CRD削除はこのCLIに追加しない。
 
-自動テストで導入順、ESO除外、所有権、kubeconfig一時ファイル、pinnerのNamespace権限と
-権限撤回、待機の非変更性を確認する。CIでは実際の固定チャートをレンダリングし、
+既存の自動テストで導入順、ESO除外、所有権、kubeconfig一時ファイル、待機の非変更性を確認する。
+Namespace制限に固有の旧テストは削除し、今回の変更で追加テストは作成しない。CIでは実際の固定チャートをレンダリングし、
 Namespace・ServiceAccount参照・ClusterIPを検証する。
 実クラスタでの導入、Git同期、Infisical/ESOの実Secret同期、pinnerによる実タグ更新は別途確認が必要。

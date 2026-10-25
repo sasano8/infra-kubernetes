@@ -193,11 +193,7 @@ cat > configs/environment/local.json <<'EOF'
   "plugins": {
     "argocd": {"enabled": true},
     "infisical": {"enabled": true},
-    "pinner": {
-      "enabled": true,
-      "namespaces": ["test"],
-      "dry_run": true
-    }
+    "pinner": {"enabled": true}
   }
 }
 EOF
@@ -210,8 +206,7 @@ EOF
 `plugins`省略時、または各`enabled=false`の場合、その追加pluginは導入・更新しない。
 **ESOは`up`に含めず**、必要な場合だけ`plugin install external-secrets`で導入する。
 Argo CDのApplication・Git接続、Infisicalの接続・Secret同期定義は別管理。
-pinnerはこの例では`test`を対象にdry-runで起動する。全Namespaceでannotationを使う運用への変更は
-[SAS-82](https://linear.app/sasano8/issue/SAS-82)で未実装のため、現行設定を記載している。
+pinnerは全Namespaceを監視し、annotationで明示したリソースを処理する。既定では実際に更新を実行する。
 個別導入・待機・管理UIへの接続方法は [プラットフォームplugin](docs/platform-plugins.md)を参照。
 
 続いて Cloudflare API トークンを配置する。

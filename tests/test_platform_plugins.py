@@ -60,29 +60,11 @@ class PlatformPluginTests(unittest.TestCase):
         self.assertEqual(calls, [(action, name) for name in ("argocd", "infisical", "pinner") for action in ("install", "wait")])
 
     def test_validation_rejects_dangerous_or_invalid_pinner_options(self):
-        bad = (("enabled", "true"), ("dry_run", 1), ("namespaces", []), ("namespaces", ["test", "test"]),
-               ("namespaces", ["../test"]), ("interval", "0m"), ("interval", "5m --debug"),
+        bad = (("enabled", "true"), ("dry_run", 1), ("interval", "0m"), ("interval", "5m --debug"),
                ("image", "image"), ("image", "repo:latest --flag"), ("registry_secret", "../secret"))
         for name, value in bad:
             with self.subTest(name=name, value=value), self.assertRaises(ValueError):
                 self.config({"pinner": {name: value}})
-
-    def test_pinner_only_grants_node_reads_at_cluster_scope(self):
-        c = self.config({"pinner": {"namespaces": ["test", "apps"]}})
-        items = plugins.pinner_resources(c)
-        cluster_roles = [x for x in items if x["kind"] == "ClusterRole"]
-        self.assertEqual(len(cluster_roles), 1)
-        self.assertEqual(cluster_roles[0]["rules"], [{"apiGroups": [""], "resources": ["nodes"], "verbs": ["get", "list"]}])
-        targets = [x for x in items if x["kind"] == "RoleBinding" and x["metadata"]["name"] == "infra-pinner-target"]
-        self.assertEqual({x["metadata"]["namespace"] for x in targets}, {"test", "apps"})
-        self.assertTrue(all(x["subjects"][0]["namespace"] == "pinner-system" for x in targets))
-        pod = items[-1]["spec"]["template"]["spec"]
-        self.assertEqual(len(pod["containers"]), 4)
-        for container in pod["containers"]:
-            self.assertIn("--dry-run", container["args"])
-            self.assertTrue(any(arg in ("--namespace=test", "--namespace=apps") for arg in container["args"]))
-        self.assertNotIn("annotations", items[-1]["metadata"])  # no implicit self-update
-        self.assertEqual(items[-1]["spec"]["strategy"], {"type": "Recreate"})
 
     def test_registry_credentials_are_references_not_values(self):
         c = self.config({"pinner": {"registry_secret": "registry", "dry_run": False}})
@@ -155,20 +137,6 @@ class PlatformPluginTests(unittest.TestCase):
         plugins.wait("argocd", c)
         self.assertEqual([args[2] for args, _ in c.calls[1:]], ["statefulset/controller", "deployment/server"])
         self.assertTrue(all(args[0] in ("deployments,statefulsets", "rollout") for args, _ in c.calls))
-
-    def test_pinner_namespace_reduction_revokes_old_owned_rbac(self):
-        c = Cluster()
-        c.responses[("get", "namespace", "test", "--ignore-not-found", "-o", "name")] = "namespace/test"
-        old = plugins.resource("v1", "ConfigMap", "infra-pinner-targets", "pinner-system", data={"namespaces": '["test","retired"]'})
-        c.responses[("get", "configmap", "infra-pinner-targets", "-n", "pinner-system", "--ignore-not-found", "-o", "json")] = json.dumps(old)
-        for kind in ("RoleBinding", "Role"):
-            c.responses[("get", kind, "infra-pinner-target", "-n", "retired", "--ignore-not-found", "-o", "json")] = json.dumps(plugins.resource("rbac.authorization.k8s.io/v1", kind, "infra-pinner-target", "retired"))
-        plugins.install("pinner", c, self.config(), lambda *args: None)
-        deletes = [args for args, _ in c.calls if args[0] == "delete"]
-        self.assertEqual({args[1] for args in deletes}, {"RoleBinding", "Role"})
-        self.assertTrue(all(args[4] == "retired" for args in deletes))
-        final = json.loads([kwargs["input"] for args, kwargs in c.calls if args[0] == "apply"][-1])
-        self.assertEqual(final["items"][0]["data"]["namespaces"], '["test"]')
 
     def test_cli_wait_only_dispatches_read_only_wait(self):
         with tempfile.TemporaryDirectory() as directory:

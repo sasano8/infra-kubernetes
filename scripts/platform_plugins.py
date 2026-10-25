@@ -22,8 +22,8 @@ CHARTS = {
                          "version": "2.11.0", "repo": "https://charts.external-secrets.io"},
 }
 DEFAULTS = {"argocd": {"enabled": False}, "infisical": {"enabled": False}, "external-secrets": {},
-            "pinner": {"enabled": False, "namespaces": ["test"], "image": "ghcr.io/sasano8/pinner:latest",
-                       "dry_run": True, "interval": "5m", "registry_secret": ""}}
+            "pinner": {"enabled": False, "image": "ghcr.io/sasano8/pinner:latest",
+                       "dry_run": False, "interval": "5m", "registry_secret": ""}}
 
 
 def dns_label(value):
@@ -43,11 +43,6 @@ def normalize(config):
         if type(result[name]["enabled"]) is not bool:
             raise ValueError("plugins." + name + ".enabled はtrue / falseです")
     p = result["pinner"]
-    if (not isinstance(p["namespaces"], list) or not p["namespaces"]
-            or any(not dns_label(ns) for ns in p["namespaces"])):
-        raise ValueError("plugins.pinner.namespaces は対象Namespace名の空でない配列です")
-    if len(set(p["namespaces"])) != len(p["namespaces"]):
-        raise ValueError("plugins.pinner.namespaces は重複できません")
     if type(p["dry_run"]) is not bool:
         raise ValueError("plugins.pinner.dry_run はtrue / falseです")
     if not isinstance(p["interval"], str) or not re.fullmatch(r"[1-9][0-9]*(?:s|m|h)", p["interval"]):
@@ -73,40 +68,39 @@ def pinner_resources(config):
     subject = [{"kind": "ServiceAccount", "name": "pinner", "namespace": ns}]
     rbac = "rbac.authorization.k8s.io/v1"
     items = [resource("v1", "ServiceAccount", "pinner", ns),
-             resource(rbac, "ClusterRole", "infra-pinner-nodes", rules=[
-                 {"apiGroups": [""], "resources": ["nodes"], "verbs": ["get", "list"]}]),
-             resource(rbac, "ClusterRoleBinding", "infra-pinner-nodes", subjects=subject,
-                      roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "infra-pinner-nodes"}),
+             resource(rbac, "ClusterRole", "infra-pinner-reader", rules=[
+                 {"apiGroups": [""], "resources": ["nodes", "pods"], "verbs": ["get", "list"]},
+                 {"apiGroups": ["apps"], "resources": ["deployments", "statefulsets", "daemonsets"], "verbs": ["get", "list"]},
+                 {"apiGroups": ["serving.knative.dev"], "resources": ["services", "revisions"], "verbs": ["get", "list"]}]),
+             resource(rbac, "ClusterRoleBinding", "infra-pinner-reader", subjects=subject,
+                      roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "infra-pinner-reader"}),
+             resource(rbac, "ClusterRole", "infra-pinner-actor", rules=[
+                 {"apiGroups": ["apps"], "resources": ["deployments", "statefulsets", "daemonsets"], "verbs": ["patch"]},
+                 {"apiGroups": ["serving.knative.dev"], "resources": ["services"], "verbs": ["patch"]},
+                 {"apiGroups": [""], "resources": ["pods"], "verbs": ["delete"]}]),
+             resource(rbac, "ClusterRoleBinding", "infra-pinner-actor-global", subjects=subject,
+                      roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "infra-pinner-actor"}),
              resource(rbac, "Role", "infra-pinner-pull", ns, rules=[
                  {"apiGroups": [""], "resources": ["pods"], "verbs": ["create", "get", "delete"]}]),
              resource(rbac, "RoleBinding", "infra-pinner-pull", ns, subjects=subject,
                       roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "infra-pinner-pull"})]
-    for target in p["namespaces"]:
-        items += [resource(rbac, "Role", "infra-pinner-target", target, rules=[
-            {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "delete"]},
-            {"apiGroups": ["apps"], "resources": ["deployments", "statefulsets", "daemonsets"], "verbs": ["get", "list", "patch"]},
-            {"apiGroups": ["serving.knative.dev"], "resources": ["services"], "verbs": ["get", "list", "patch"]},
-            {"apiGroups": ["serving.knative.dev"], "resources": ["revisions"], "verbs": ["get", "list"]}]),
-            resource(rbac, "RoleBinding", "infra-pinner-target", target, subjects=subject,
-                     roleRef={"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "infra-pinner-target"})]
-    # One process pair per namespace: --namespace also limits collection, not just writes.
+    # Match infra-k0s: one pull/trigger pair, all namespaces, annotation opt-in.
     containers = []
-    for index, target in enumerate(p["namespaces"]):
-        for command in ("pull", "trigger"):
-            args = [command, "--daemon", "--interval=" + p["interval"], "--namespace=" + target]
-            if command == "pull":
-                args.append("--pull-namespace=" + ns)
-            if p["dry_run"]:
-                args.append("--dry-run")
-            container = {"name": command + "-" + str(index), "image": p["image"], "imagePullPolicy": "Always",
-                         "args": args, "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
-                         "limits": {"cpu": "250m", "memory": "128Mi"}},
-                         "securityContext": {"readOnlyRootFilesystem": True, "allowPrivilegeEscalation": False,
-                                             "capabilities": {"drop": ["ALL"]}}}
-            if command == "pull" and p["registry_secret"]:
-                container["volumeMounts"] = [{"name": "registry", "mountPath": "/credential", "readOnly": True}]
-                args.append("--credential=/credential/config.json")
-            containers.append(container)
+    for command in ("pull", "trigger"):
+        args = [command, "--daemon", "--interval=" + p["interval"]]
+        if command == "pull":
+            args.append("--pull-namespace=" + ns)
+        if p["dry_run"]:
+            args.append("--dry-run")
+        container = {"name": command, "image": p["image"], "imagePullPolicy": "Always",
+                     "args": args, "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
+                     "limits": {"cpu": "250m", "memory": "128Mi"}},
+                     "securityContext": {"readOnlyRootFilesystem": True, "allowPrivilegeEscalation": False,
+                                         "capabilities": {"drop": ["ALL"]}}}
+        if command == "pull" and p["registry_secret"]:
+            container["volumeMounts"] = [{"name": "registry", "mountPath": "/credential", "readOnly": True}]
+            args.append("--credential=/credential/config.json")
+        containers.append(container)
     pod = {"serviceAccountName": "pinner", "securityContext": {"runAsNonRoot": True,
            "seccompProfile": {"type": "RuntimeDefault"}}, "containers": containers}
     if p["registry_secret"]:
@@ -115,6 +109,10 @@ def pinner_resources(config):
     items.append(resource("apps/v1", "Deployment", "pinner", ns, spec={"replicas": 1,
         "strategy": {"type": "Recreate"}, "selector": {"matchLabels": {"app": "pinner"}},
         "template": {"metadata": {"labels": {"app": "pinner", **OWNER}}, "spec": pod}}))
+    items[-1]["metadata"]["annotations"] = {
+        "floatingtag-pinner/enabled": "true",
+        "floatingtag-pinner/on-mismatch": "delete-pods",
+    }
     return items
 
 
@@ -174,10 +172,6 @@ def owned_apply(cluster, items):
 
 def install(name, cluster, config, ensure_namespaces):
     if name == "pinner":
-        for target in config["plugins"]["pinner"]["namespaces"]:
-            if not cluster.call("get", "namespace", target, "--ignore-not-found", "-o", "name",
-                                capture_output=True, text=True).stdout.strip():
-                raise ValueError("pinner対象Namespaceを先に用意してください: " + target)
         ensure_namespaces(cluster, ("pinner-system",))
         if config["plugins"]["pinner"]["registry_secret"]:
             cluster.call("get", "secret", config["plugins"]["pinner"]["registry_secret"], "-n", "pinner-system", "-o", "name")
@@ -190,7 +184,7 @@ def install(name, cluster, config, ensure_namespaces):
         if not isinstance(old, list) or any(not dns_label(target) for target in old):
             raise ValueError("pinner配備記録のNamespace一覧が不正です")
         retired = []
-        for target in sorted(set(old) - set(config["plugins"]["pinner"]["namespaces"])):
+        for target in sorted(set(old)):
             for kind in ("RoleBinding", "Role"):
                 found = cluster.call("get", kind, "infra-pinner-target", "-n", target,
                                      "--ignore-not-found", "-o", "json", capture_output=True, text=True).stdout
@@ -201,9 +195,19 @@ def install(name, cluster, config, ensure_namespaces):
         owned_apply(cluster, pinner_resources(config))
         for kind, target in retired:
             cluster.call("delete", kind, "infra-pinner-target", "-n", target, "--ignore-not-found")
-        # Save only after revocation, so interrupted changes remain retryable.
-        owned_apply(cluster, [resource("v1", "ConfigMap", "infra-pinner-targets", "pinner-system",
-                    data={"namespaces": json.dumps(config["plugins"]["pinner"]["namespaces"])})])
+        # The old namespace-scoped installation is obsolete after global RBAC.
+        for kind, name in (("ClusterRoleBinding", "infra-pinner-nodes"),
+                           ("ClusterRole", "infra-pinner-nodes"),
+                           ("ConfigMap", "infra-pinner-targets")):
+            args = ["get", kind, name, "--ignore-not-found", "-o", "json"]
+            if kind == "ConfigMap":
+                args += ["-n", "pinner-system"]
+            found = cluster.call(*args, capture_output=True, text=True).stdout
+            if found.strip() and json.loads(found).get("metadata", {}).get("labels", {}).get("infra.sasano8.dev/owner") == "infra-kubernetes":
+                delete = ["delete", kind, name, "--ignore-not-found"]
+                if kind == "ConfigMap":
+                    delete += ["-n", "pinner-system"]
+                cluster.call(*delete)
         return
     chart = CHARTS[name]
     require_helm()

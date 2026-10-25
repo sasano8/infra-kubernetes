@@ -33,11 +33,7 @@
     },
     "external-secrets": {},
     "pinner": {
-      "enabled": false,
-      "namespaces": [
-        "test"
-      ],
-      "dry_run": true
+      "enabled": false
     }
   }
 }

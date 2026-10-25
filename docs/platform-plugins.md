@@ -18,6 +18,8 @@ Argo CD・Infisical・ESOには、sudoで実行する場合もPATHから利用�
 ```bash
 helm version --short
 sudo helm version --short
+make help-install-helm
+make check-helm
 
 sudo ./bin/infra plugin install argocd --kubectl 'k0s kubectl'
 sudo ./bin/infra plugin wait argocd --kubectl 'k0s kubectl'

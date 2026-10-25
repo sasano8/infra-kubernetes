@@ -123,11 +123,11 @@ def render(config, output):
 
 def require_helm():
     if not shutil.which("helm"):
-        raise ValueError("Helm 3.13以降の3系が必要です。docs/platform-plugins.mdを参照してください")
+        raise ValueError("Helm 3.13以降の3系を別途インストールしてください。make help-install-helmで導入手順、make check-helmで確認できます")
     result = subprocess.run(["helm", "version", "--short"], check=True, capture_output=True, text=True)
     match = re.match(r"v3\.([0-9]+)\.", result.stdout)
     if not match or int(match[1]) < 13:
-        raise ValueError("Helm 3.13以降の3系を使用してください")
+        raise ValueError("Helm 3.13以降の3系を使用してください。make help-install-helmを参照してください")
 
 
 @contextmanager

@@ -149,12 +149,11 @@ cd infra-kubernetes
 ```
 
 Argo CD・Infisicalの導入には、**Helm 3.13以降の3系**も必要。
-[Helm公式の導入手順](https://helm.sh/docs/intro/install/)に従って配置し、sudoからも利用できることを確認する。
-`make help-install-helm`で導入案内、`make check-helm`で配備時と同じ環境の確認ができる。
+`make install-helm`で未導入ならv3.19.0をSHA-256検証後に`/usr/local/bin/helm`へ導入し、
+導入済みなら配備時と同じsudo環境でバージョンを確認する。
 
 ```bash
-helm version --short
-sudo helm version --short
+make install-helm
 ```
 
 HTTPS・Google Workspace SSO・Argo CD・Infisical・pinnerを有効にした設定ファイルを配置する。

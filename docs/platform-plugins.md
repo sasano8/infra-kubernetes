@@ -12,14 +12,12 @@ ESOのSecretStore／ExternalSecret、アプリのマニフェストは別リポ�
 
 通常の環境設定 `configs/environment/local.json` を使う。
 Argo CD・Infisical・ESOには、sudoで実行する場合もPATHから利用できるHelm **3.13以降の3系**が必要。
-[Helm公式の導入手順](https://helm.sh/docs/intro/install/)に従って配置する。
-ホストでは本体を自動ダウンロードしてroot実行するスクリプトを追加しない。
+`make install-helm`で未導入なら公式Helm v3.19.0バイナリとチェックサムを取得し、
+SHA-256検証後に`/usr/local/bin/helm`へ導入する。Linux amd64／arm64対応。
+導入済みなら対応バージョンか確認し、対応外の既存バイナリは自動上書きせず停止する。
 
 ```bash
-helm version --short
-sudo helm version --short
-make help-install-helm
-make check-helm
+make install-helm
 
 sudo ./bin/infra plugin install argocd --kubectl 'k0s kubectl'
 sudo ./bin/infra plugin wait argocd --kubectl 'k0s kubectl'

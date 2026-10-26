@@ -343,6 +343,16 @@ def host_action(action):
     binary = Path("/usr/local/bin/k0s")
     if not binary.is_file():
         raise ValueError("k0sがありません。先にmake install-k0sを実行してください")
+    if action == "reset":
+        print("k0sホスト全体を停止・リセットします。クラスタ状態は削除されます。", flush=True)
+        run([binary, "stop"])
+        run([binary, "reset"])
+        # Only remove the binary and our marker after k0s reset succeeds.
+        binary.unlink(missing_ok=True)
+        Path("/var/lib/infra-kubernetes/k0s-version").unlink(missing_ok=True)
+        print("k0s本体と導入記録を削除しました。sudo rebootでホストを再起動してください。", flush=True)
+        print("再構築は再起動後にmake install-k0sから行い、kubeconfigを再取得してください。", flush=True)
+        return
     if action == "kubeconfig":
         # stdout must contain YAML only, for explicit export to a user-owned file.
         subprocess.run([str(binary), "kubeconfig", "admin"], check=True)
@@ -788,7 +798,7 @@ def run_phase(action, cluster, c, output, plugin=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "host", "configure-secret-cloudflare-token", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
-    parser.add_argument("plugin_action", nargs="?", choices=("install", "wait", "start", "stop", "status", "kubeconfig"))
+    parser.add_argument("plugin_action", nargs="?", choices=("install", "wait", "start", "stop", "status", "reset", "kubeconfig"))
     parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong", *platform_plugins.NAMES))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
@@ -798,8 +808,8 @@ def main():
     parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
     if args.action == "host":
-        if args.plugin_action not in ("install", "start", "stop", "status", "kubeconfig") or args.plugin_name:
-            parser.error("host <install|start|stop|status|kubeconfig> を指定してください")
+        if args.plugin_action not in ("install", "start", "stop", "status", "reset", "kubeconfig") or args.plugin_name:
+            parser.error("host <install|start|stop|status|reset|kubeconfig> を指定してください")
         host_action(args.plugin_action)
         return
     if args.action == "plugin":

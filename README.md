@@ -177,6 +177,22 @@ kubectl get nodes
 `mode=new-host`はKnativeの導入・共通設定を管理する指定として残るが、`up`からk0sの
 インストールやsystemd操作は行わない。
 
+### 旧infra-k0sの撤去・ホストの再構築
+
+ホスト直接導入版を停止するだけなら`make stop-k0s`。再開は`make start-k0s`。
+旧環境を破棄して作り直す場合は、必要なアプリ定義・Secret・永続データをバックアップしてから実行する。
+**`reset-k0s`は、このホストのk0sクラスタ全体を破棄する。旧・新プロジェクトのリソースを区別しない。**
+
+```bash
+make reset-k0s
+sudo reboot
+```
+
+内部ではsudoで`k0s stop`→`k0s reset`を実行し、成功後に`/usr/local/bin/k0s`と
+本プロジェクトの導入記録を削除する。リセット失敗時は本体・導入記録を削除しない。
+再起動は自動実行しない。旧リポジトリ、ユーザーのkubeconfig、クラスタ外のデータは削除しない。
+再構築は再起動後に`make install-k0s`から進め、接続用kubeconfigも再取得する。
+
 ### 配備に必要なツールと設定
 
 Argo CD・Infisicalの導入には、**Helm 3.13以降の3系**も必要。

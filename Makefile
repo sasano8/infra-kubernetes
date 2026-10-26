@@ -6,13 +6,14 @@ PYTHON ?= python3
 SUDO ?= sudo
 EDITOR ?= vi
 
-.PHONY: help install-k0s start-k0s stop-k0s status-k0s install-helm edit-config configure-secret-cloudflare-token configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
+.PHONY: help install-k0s start-k0s stop-k0s status-k0s reset-k0s install-helm edit-config configure-secret-cloudflare-token configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
 
 help:
 	@printf '%s\n' \
 	  '前提: Argo CD・Infisical・ESOにはHelm 3.13以降の3系を別途インストール（推奨v3.19.0）' \
 	  'make install-k0s                         sudoでk0sを導入・systemd登録・起動' \
 	  'make start-k0s / stop-k0s / status-k0s   sudoでk0sの起動・停止・状態確認' \
+	  'make reset-k0s                           sudoで停止・クラスタ破棄・本体削除（バックアップ後に実行）' \
 	  'make install-helm                        未導入ならHelm v3.19.0を導入、導入済みならバージョン確認' \
 	  'make edit-config                         環境設定JSONを編集' \
 	  'make configure-secret-cloudflare-token   保存先を表示してCloudflareトークンを非表示入力・保存' \
@@ -36,6 +37,10 @@ stop-k0s:
 
 status-k0s:
 	@$(SUDO) ./bin/infra host status
+
+# Destructive host cleanup; reboot remains an explicit administrator operation.
+reset-k0s:
+	@$(SUDO) ./bin/infra host reset
 
 # Helm requests sudo only when placing its binary under /usr/local/bin.
 install-helm:

@@ -22,9 +22,20 @@ class SetupPhases(unittest.TestCase):
             result = subprocess.run(['make', '-n', target], cwd=ROOT, check=True, capture_output=True, text=True)
             self.assertNotIn('sudo', result.stdout)
             self.assertNotIn('k0s kubectl', result.stdout)
-        for target, action in (('install-k0s', 'install'), ('start-k0s', 'start'), ('stop-k0s', 'stop')):
+        for target, action in (('install-k0s', 'install'), ('start-k0s', 'start'), ('stop-k0s', 'stop'), ('reset-k0s', 'reset')):
             result = subprocess.run(['make', '-n', target], cwd=ROOT, check=True, capture_output=True, text=True)
             self.assertIn('sudo ./bin/infra host ' + action, result.stdout)
+
+    def test_failed_k0s_reset_keeps_binary_and_installation_record(self):
+        with patch.object(infra.os, 'geteuid', return_value=0), \
+             patch.object(infra.platform, 'system', return_value='Linux'), \
+             patch.object(infra.Path, 'is_file', return_value=True), \
+             patch.object(infra.Path, 'unlink') as unlink, \
+             patch.object(infra, 'run', side_effect=[None, subprocess.CalledProcessError(1, ['k0s', 'reset'])]) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                infra.host_action('reset')
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list], ['stop', 'reset'])
+        unlink.assert_not_called()
 
     def test_host_install_does_not_load_environment_or_deploy(self):
         with patch.object(sys, 'argv', ['infra', 'host', 'install']), \

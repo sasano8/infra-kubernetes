@@ -21,7 +21,7 @@ VM 上で、リポジトリのルートから実行する。
 
 ```bash
 git pull origin main
-sudo bash ./scripts/check-knative-webhook.sh
+bash ./scripts/check-knative-webhook.sh
 ```
 
 ファイルにも残す場合:
@@ -29,7 +29,7 @@ sudo bash ./scripts/check-knative-webhook.sh
 ```bash
 mkdir -p .local/results
 set -o pipefail
-sudo bash ./scripts/check-knative-webhook.sh 2>&1 | tee .local/results/webhook-diagnostics.log
+bash ./scripts/check-knative-webhook.sh 2>&1 | tee .local/results/webhook-diagnostics.log
 ```
 
 出力を共有して原因を切り分ける。ログに機密情報がある場合は伏せてから共有する。

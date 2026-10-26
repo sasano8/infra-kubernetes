@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path,
                         default=Path(__file__).resolve().parents[1] / "configs/environment/local.json")
-    parser.add_argument("--kubectl", default="k0s kubectl")
+    parser.add_argument("--kubectl", default="kubectl")
     parser.add_argument("--port", type=int, default=18080)
     parser.add_argument("--timeout", type=int, default=180, help="HTTP timeout in seconds")
     parser.add_argument("--scale-zero-timeout", type=int, default=600,

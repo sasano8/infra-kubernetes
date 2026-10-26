@@ -11,26 +11,26 @@ ESOのSecretStore／ExternalSecret、アプリのマニフェストは別リポ�
 ## 本体導入と待機
 
 通常の環境設定 `configs/environment/local.json` を使う。
-Argo CD・Infisical・ESOには、sudoで実行する場合もPATHから利用できるHelm **3.13以降の3系**が必要。
+Argo CD・Infisical・ESOには、作業ユーザーのPATHから利用できるHelm **3.13以降の3系**が必要。
 `make install-helm`で未導入なら公式Helm v3.19.0バイナリとチェックサムを取得し、
-SHA-256検証後に`/usr/local/bin/helm`へ導入する。Linux amd64／arm64対応。
+SHA-256検証後、バイナリの配置時だけsudoで`/usr/local/bin/helm`へ導入する。Linux amd64／arm64対応。
 導入済みなら対応バージョンか確認し、対応外の既存バイナリは自動上書きせず停止する。
 
 ```bash
 make install-helm
 
-sudo ./bin/infra plugin install argocd --kubectl 'k0s kubectl'
-sudo ./bin/infra plugin wait argocd --kubectl 'k0s kubectl'
+./bin/infra plugin install argocd
+./bin/infra plugin wait argocd
 
-sudo ./bin/infra plugin install infisical --kubectl 'k0s kubectl'
-sudo ./bin/infra plugin wait infisical --kubectl 'k0s kubectl'
+./bin/infra plugin install infisical
+./bin/infra plugin wait infisical
 
 # 任意。使わなければ実行しない。
-sudo ./bin/infra plugin install external-secrets --kubectl 'k0s kubectl'
-sudo ./bin/infra plugin wait external-secrets --kubectl 'k0s kubectl'
+./bin/infra plugin install external-secrets
+./bin/infra plugin wait external-secrets
 
-sudo ./bin/infra plugin install pinner --kubectl 'k0s kubectl'
-sudo ./bin/infra plugin wait pinner --kubectl 'k0s kubectl'
+./bin/infra plugin install pinner
+./bin/infra plugin wait pinner
 ```
 
 `install`は本体を適用し、Deployment／StatefulSetのrollout完了は`wait`で確認する。
@@ -77,7 +77,7 @@ Infisical／ESOはHelmの`--namespace`でRoleBindingやwebhookのnamespaceも揃
 ```
 
 ```bash
-sudo ./bin/infra up --require-https
+./bin/infra up --require-https
 ```
 
 既存のKong／サンプル配備後に、有効な標準pluginをArgo CD → Infisical → pinnerの順で導入・待機する。
@@ -89,7 +89,7 @@ sudo ./bin/infra up --require-https
 サーバー上でローカル転送を起動する。
 
 ```bash
-sudo k0s kubectl -n argocd port-forward --address=127.0.0.1 service/argo-cd-argocd-server 8443:443
+kubectl -n argocd port-forward --address=127.0.0.1 service/argo-cd-argocd-server 8443:443
 ```
 
 外部PCからはSSHトンネル等でこのローカルポートへ接続する。FWで8443を公開する必要はない。

@@ -8,7 +8,7 @@ port-forward を Ctrl-C で終了し、接続先を確認してから実行す�
 
 ```bash
 # 新規 k0s
-sudo ./bin/infra remove --kubectl 'k0s kubectl'
+./bin/infra remove
 
 # 既存クラスタ
 kubectl config current-context

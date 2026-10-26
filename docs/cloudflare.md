@@ -30,10 +30,10 @@ Kong ホストのリポジトリのルートで実行する。
 既に sudo で構築済みでも書き込めるよう、生成ディレクトリの所有者をログインユーザーに揃える。
 
 ```bash
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
-sudo touch .local/secrets/cloudflare-api-token
-sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
-sudo chmod 600 .local/secrets/cloudflare-api-token
+mkdir -p .local/secrets
+chmod 700 .local .local/secrets
+touch .local/secrets/cloudflare-api-token
+chmod 600 .local/secrets/cloudflare-api-token
 (
   umask 077
   read -r -s -p 'Cloudflare API token: ' cf_api_token
@@ -50,7 +50,7 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 同じ手順でトークンファイルを置き換えた後、Secretだけを更新する。
 
 ```bash
-sudo ./bin/infra apply-secret-cloudflare-token --kubectl 'k0s kubectl'
+./bin/infra apply-secret-cloudflare-token
 ```
 
 `--config` で指定した環境設定の `tls.cloudflare_token_file` を読み込む。
@@ -62,7 +62,7 @@ sudo ./bin/infra apply-secret-cloudflare-token --kubectl 'k0s kubectl'
 cert-managerの自動再試行による証明書発行は、別途確認する。
 
 ```bash
-sudo k0s kubectl -n test get certificates -w
+kubectl -n test get certificates -w
 ```
 
 Cloudflare側のトークンには対象ゾーンのZone Read／DNS Edit権限が必要。
@@ -96,8 +96,8 @@ Cloudflare のエッジ証明書や多段サブドメインの Universal SSL 設
 
 ```bash
 git pull origin main
-sudo ./bin/infra validate --require-https
-sudo ./bin/infra up --require-https
+./bin/infra validate --require-https
+./bin/infra up --require-https
 ```
 
 設定とトークンを事前検証し、cert-manager 導入・証明書発行・Kong の443番公開まで行う。

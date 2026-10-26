@@ -382,7 +382,7 @@ def main():
     parser.add_argument("--from-ref", help="このコミットから HEAD までを確認（既定: 全祖先履歴）")
     parser.add_argument("--config", type=Path, default=inv.ROOT / "configs/environment/local.json")
     parser.add_argument("--plan", type=Path, default=inv.STATE / "prune-plan.json")
-    parser.add_argument("--kubectl", default="k0s kubectl")
+    parser.add_argument("--kubectl", default="kubectl")
     args = parser.parse_args()
     changed = inv.git("diff", "--name-only", "HEAD").splitlines()
     if any(inv.selected(path) for path in changed):

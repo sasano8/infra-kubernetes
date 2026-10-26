@@ -330,8 +330,27 @@ def install_host():
     if status.returncode != 0:
         run([binary, "start"])
     else:
-        print("k0s は起動済みです。API / Node の確認に進みます。", flush=True)
-    cluster = Cluster(f"{binary} kubectl")
+        print("k0s は起動済みです。ホスト設定を維持します。", flush=True)
+    print("k0sホストの導入・起動が完了しました。ユーザー用kubeconfigを設定してmake upを実行してください。")
+
+
+def host_action(action):
+    if os.geteuid() != 0 or platform.system() != "Linux":
+        raise ValueError("k0sホスト操作はLinux上でsudoを付けて実行してください")
+    if action == "install":
+        install_host()
+        return
+    binary = Path("/usr/local/bin/k0s")
+    if not binary.is_file():
+        raise ValueError("k0sがありません。先にmake install-k0sを実行してください")
+    if action == "kubeconfig":
+        # stdout must contain YAML only, for explicit export to a user-owned file.
+        subprocess.run([str(binary), "kubeconfig", "admin"], check=True)
+    else:
+        run([binary, action])
+
+
+def wait_cluster(cluster):
     deadline = time.monotonic() + 300
     while True:
         try:
@@ -343,7 +362,6 @@ def install_host():
             raise ValueError("k0s API / Node 登録がタイムアウトしました。journalctl -u k0scontroller を確認してください")
         time.sleep(5)
     cluster.call("wait", "node", "--all", "--for=condition=Ready", "--timeout=300s")
-    return cluster
 
 
 def apply_admission_config(cluster, path, description, manager, force=False):
@@ -769,18 +787,23 @@ def run_phase(action, cluster, c, output, plugin=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
-    parser.add_argument("plugin_action", nargs="?", choices=("install", "wait"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "host", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
+    parser.add_argument("plugin_action", nargs="?", choices=("install", "wait", "start", "stop", "status", "kubeconfig"))
     parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong", *platform_plugins.NAMES))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / ".local/rendered")
-    parser.add_argument("--kubectl", default="kubectl", help="例: 'sudo k0s kubectl'（shell 展開しません）")
+    parser.add_argument("--kubectl", default="kubectl", help="設定済みkubectlを使用（shell展開しません）")
     parser.add_argument("--require-https", action="store_true", help="TLS が無効・未設定なら停止する")
     parser.add_argument("--rotate-cookie", action="store_true", help="SSO資格情報の変更時にCookie鍵も再生成する")
     parser.add_argument("--format", choices=("shell", "markdown"), default="markdown")
     args = parser.parse_args()
+    if args.action == "host":
+        if args.plugin_action not in ("install", "start", "stop", "status", "kubeconfig") or args.plugin_name:
+            parser.error("host <install|start|stop|status|kubeconfig> を指定してください")
+        host_action(args.plugin_action)
+        return
     if args.action == "plugin":
-        if not args.plugin_action or not args.plugin_name:
+        if args.plugin_action not in ("install", "wait") or not args.plugin_name:
             parser.error("plugin install/wait <plugin名> を指定してください")
         if args.plugin_action == "wait" and args.plugin_name not in platform_plugins.NAMES:
             parser.error("既存pluginの待機にはwait-knative / wait-cert-manager / wait-kongを使用してください")
@@ -820,16 +843,8 @@ def main():
         tls.ensure_token(cluster, c, require_file=True)
         return
     if c["tls"]["enabled"]:
-        credential_cluster = cluster
-        if c["mode"] == "new-host" and args.kubectl == "kubectl":
-            # A fresh host has no API yet. An installed host may already hold a usable Secret.
-            credential_cluster = (Cluster("/usr/local/bin/k0s kubectl")
-                                  if Path("/usr/local/bin/k0s").is_file() else None)
-        tls.preflight(c, credential_cluster)
-    credential_cluster = cluster
-    if c["mode"] == "new-host" and args.kubectl == "kubectl":
-        credential_cluster = (Cluster("/usr/local/bin/k0s kubectl") if Path("/usr/local/bin/k0s").is_file() else None)
-    sso.preflight(c, credential_cluster)
+        tls.preflight(c, cluster)
+    sso.preflight(c, cluster)
     print("設定検証: OK", flush=True)
     if c["tls"]["enabled"]:
         print(f"TLS: 有効 / Cloudflare zone: {c['tls']['cloudflare_zone']} / "
@@ -843,7 +858,7 @@ def main():
     platform_plugins.preflight(c)
     if args.action == "up" and c["mode"] == "new-host":
         render(c, args.output)
-        cluster = install_host()
+        wait_cluster(cluster)
         bootstrap(cluster, args.output, c)
     deploy(cluster, c, args.output)
 

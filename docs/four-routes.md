@@ -121,8 +121,8 @@ bin/infra render --config configs/environment/local.json
 一致を事前確認する（selector文字列も生成値と同じ形式にする）。
 
 ```bash
-sudo bin/infra deploy --kubectl 'k0s kubectl'
-sudo python3 scripts/check-routes.py
+bin/infra deploy
+python3 scripts/check-routes.py
 ```
 
 明示4経路＋既定2経路のHTTP疎通・Host保持、Knative 3サービスそれぞれのPod 0件→復帰の計9項目が成功すると

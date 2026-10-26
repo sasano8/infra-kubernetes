@@ -138,7 +138,8 @@ ssh_authorized_keys:
 ## インストール
 
 Kong ホストで実行する。以下は `dnf` が使える新規の専用 Linux ホスト向けの手順。
-Python 3.10 以上・curl・CA 証明書・sudo・systemd が必要。
+Python 3.10 以上・curl・CA 証明書と、設定済みのkubectlが必要。
+k0sホストを新規構築する場合だけ、sudo・systemdも必要。
 
 ```bash
 sudo dnf install -y git make
@@ -148,9 +149,39 @@ git clone https://github.com/sasano8/infra-kubernetes.git
 cd infra-kubernetes
 ```
 
+### 初回だけ：k0sホスト操作とkubectlの接続設定
+
+新しいk0sホストを作る場合は、配備と分けて実行する。
+
+```bash
+make install-k0s   # sudoでバイナリ配置・設定・systemd登録・起動
+```
+
+kubectlが既に対象クラスタへ接続できる場合は、その設定を使う。
+新規ホストで接続設定を作る場合は、管理者用kubeconfigを作業ユーザーの専用ファイルへ保存する。
+既存の`~/.kube/config`は上書きしない。このkubeconfigにはクラスタ管理者権限がある。
+
+```bash
+mkdir -p ~/.kube
+(
+  umask 077
+  sudo ./bin/infra host kubeconfig > ~/.kube/infra-kubernetes.yaml
+)
+export KUBECONFIG="$HOME/.kube/infra-kubernetes.yaml"
+kubectl config current-context
+kubectl get nodes
+```
+
+以降の`make up`・plugin操作・Secret適用・疎通確認はsudoなしで実行する。
+`make start-k0s`／`make stop-k0s`／`make status-k0s`はsudoでk0sホストを操作する。
+`mode=new-host`はKnativeの導入・共通設定を管理する指定として残るが、`up`からk0sの
+インストールやsystemd操作は行わない。
+
+### 配備に必要なツールと設定
+
 Argo CD・Infisicalの導入には、**Helm 3.13以降の3系**も必要。
 `make install-helm`で未導入ならv3.19.0をSHA-256検証後に`/usr/local/bin/helm`へ導入し、
-導入済みなら配備時と同じsudo環境でバージョンを確認する。
+導入済みなら作業ユーザーの環境でバージョンを確認する。バイナリの配置時だけsudoを使用する。
 
 ```bash
 make install-helm
@@ -214,10 +245,10 @@ pinnerは全Namespaceを監視し、annotationで明示したリソースを処�
 リポジトリのルートで以下を実行して貼り付ける（入力は画面に表示されない）。
 
 ```bash
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
-sudo touch .local/secrets/cloudflare-api-token
-sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
-sudo chmod 600 .local/secrets/cloudflare-api-token
+mkdir -p .local/secrets
+chmod 700 .local .local/secrets
+touch .local/secrets/cloudflare-api-token
+chmod 600 .local/secrets/cloudflare-api-token
 (
   umask 077
   read -r -s -p 'Cloudflare API token: ' cf_api_token
@@ -239,19 +270,22 @@ DNS は **DNS only** で Kong ホストに到達する公開 IP に向け、フ�
 ホスト側と外部側のファイアウォールで受信を許可する。
 
 ```bash
-sudo ./bin/infra validate --require-https
-sudo ./bin/infra up --require-https
+./bin/infra validate --require-https
+./bin/infra up --require-https
 ```
 
-設定だけを確認する場合は `sudo ./bin/infra validate --require-https`。
+以前のsudo実行で`.local`がroot所有になっている場合だけ、
+`sudo chown -R "$(id -un):$(id -gn)" .local`で作業ユーザーへ戻す。
+
+設定だけを確認する場合は `./bin/infra validate --require-https`。
 `up` も開始時に設定と必要なトークンを検証し、不足していれば構築前に停止する。
 
 一括構築は `up`、工程ごとの再実行は `plugin install`・`apply-*`・`wait-*` を使う。
 例えば証明書の設定適用と発行待機は分けて実行できる。
 
 ```bash
-sudo ./bin/infra apply-certificates --kubectl 'k0s kubectl'
-sudo ./bin/infra wait-certificates --kubectl 'k0s kubectl'
+./bin/infra apply-certificates
+./bin/infra wait-certificates
 ```
 
 標準導入・設定注入・個別設定の分担と全コマンドは [工程別の構築手順](docs/setup-phases.md)を参照。
@@ -272,8 +306,8 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 SSO有効時は内部診断を種別ごとに実行する。外部DNS・HTTPS・Kongの認証確認は含まない。
 
 ```bash
-sudo python3 scripts/check-routes.py --internal standard
-sudo python3 scripts/check-routes.py --internal knative
+python3 scripts/check-routes.py --internal standard
+python3 scripts/check-routes.py --internal knative
 ```
 
 通常はServiceへ、KnativeはKourierへ127.0.0.1のport-forwardで接続する。
@@ -304,8 +338,8 @@ HTTPS 公開の設定・証明書の発行と更新・診断は [HTTPS の詳細
 古いリソースは Git 履歴との差分から確認・削除できる（`apply` は削除を実行する）。
 
 ```bash
-sudo python3 scripts/prune-resources.py plan
-sudo python3 scripts/prune-resources.py apply
+python3 scripts/prune-resources.py plan
+python3 scripts/prune-resources.py apply
 ```
 
 [削除候補・保留条件・配備記録の詳細](docs/pruning.md)

@@ -1,6 +1,7 @@
 """Independent apply/wait phases share the full installer without unrelated work."""
 import json
 import re
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +17,37 @@ import tls
 
 
 class SetupPhases(unittest.TestCase):
+    def test_make_separates_privileged_host_operations_from_user_deployment(self):
+        for target in ('up', 'apply-secret-google-sso', 'restart-deployment-oauth2-proxy', 'wait-deployment-oauth2-proxy', 'install-helm'):
+            result = subprocess.run(['make', '-n', target], cwd=ROOT, check=True, capture_output=True, text=True)
+            self.assertNotIn('sudo', result.stdout)
+            self.assertNotIn('k0s kubectl', result.stdout)
+        for target, action in (('install-k0s', 'install'), ('start-k0s', 'start'), ('stop-k0s', 'stop')):
+            result = subprocess.run(['make', '-n', target], cwd=ROOT, check=True, capture_output=True, text=True)
+            self.assertIn('sudo ./bin/infra host ' + action, result.stdout)
+
+    def test_host_install_does_not_load_environment_or_deploy(self):
+        with patch.object(sys, 'argv', ['infra', 'host', 'install']), \
+             patch.object(infra, 'host_action') as host, patch.object(infra, 'load') as load, \
+             patch.object(infra, 'deploy') as deploy:
+            infra.main()
+        host.assert_called_once_with('install')
+        load.assert_not_called()
+        deploy.assert_not_called()
+
+    def test_new_host_up_uses_user_kubectl_without_installing_host(self):
+        with patch.object(sys, 'argv', ['infra', 'up', '--config', str(self.path)]), \
+             patch.object(infra, 'install_host', side_effect=AssertionError('root host installation')), \
+             patch.object(infra, 'Cluster', return_value=self.cluster) as client, \
+             patch.object(infra, 'wait_cluster') as wait, patch.object(infra, 'render'), \
+             patch.object(infra, 'bootstrap') as bootstrap, patch.object(infra, 'deploy') as deploy, \
+             patch.object(sso, 'preflight'), patch.object(tls, 'preflight'):
+            infra.main()
+        client.assert_called_once_with('kubectl')
+        wait.assert_called_once_with(self.cluster)
+        bootstrap.assert_called_once()
+        deploy.assert_called_once()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

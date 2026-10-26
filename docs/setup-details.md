@@ -36,19 +36,21 @@ Python 3.10 以上、curl、CA 証明書、Git、sudo を事前に用意する�
 ```bash
 git clone https://github.com/sasano8/infra-kubernetes.git
 cd infra-kubernetes
+make install-k0s
+# READMEの手順で作業ユーザーのkubectl接続を設定する。
 ./bin/infra configure
-sudo ./bin/infra up
+./bin/infra up
 ```
 
 SSOを使う場合はconfigureで有効化をtrueにし、Googleクライアント・Cookie鍵を事前に準備する。
 非対話の場合は [READMEのHTTPS・SSO有効設定](../README.md#インストール)を
 `configs/environment/local.json` に配置して編集する。
 `configs/environment/example.json` はTLS・SSO無効の最小例なので、そのままコピーしてもSSOは有効にならない。
-`sudo ./bin/infra up --require-https` の1コマンドで構築できる。
+k0s本体の導入・kubectl接続設定後は、`make up`で配備できる。
 `configure` は設定だけを生成し、インストールは行わない。既存ファイルは上書きしない。
 
-`up` は公式 Release のバイナリと SHA-256 リストを照合して k0s を導入し、
-systemd サービス化、Knative / Kourier 導入、サンプルと Kong の配備まで行う。
+`make install-k0s` はsudoで公式ReleaseのバイナリをSHA-256検証して導入し、systemdへ登録・起動する。
+`up` はsudoなしのkubectlでKnative / Kourier、サンプルとKongを配備する。
 API・Node・Deployment・Knative Service の起動待ちは行うが HTTP 検証は行わない。
 起動失敗時は `sudo journalctl -u k0scontroller` を確認する。
 自分で作成した k0s だけ再実行を許可し、既存 k0s の採用・更新・reset はしない。
@@ -81,8 +83,6 @@ namespace selector や NetworkPolicy の影響も考慮する。
 kubectl config current-context
 ./bin/infra up
 
-# k0s 内蔵 kubectl を使う場合
-sudo ./bin/infra up --kubectl 'k0s kubectl'
 ```
 
 `existing` では k0s・Knative・Kourier の導入や共通設定の変更を行わない。
@@ -107,13 +107,13 @@ domain-template が前提と異なれば停止し、自動修正しない。
 ./bin/infra render
 
 # 設定と必要な認証情報の配置を確認（クラスタ変更なし）
-sudo ./bin/infra validate
+./bin/infra validate
 
 # HTTPS の設定漏れもエラーにする
-sudo ./bin/infra validate --require-https
+./bin/infra validate --require-https
 
 # 起動済みクラスタにサンプルと Kong だけ再配備
-sudo ./bin/infra deploy --kubectl 'k0s kubectl'
+./bin/infra deploy
 ```
 
 `configs/environment/local.json` と `.local/` は Git 管理外。
@@ -131,7 +131,7 @@ sudo ./bin/infra deploy --kubectl 'k0s kubectl'
 Caddy の80/443番とは競合させない。VM のターミナルで以下を実行する。
 
 ```bash
-sudo k0s kubectl -n kong-system port-forward service/kong-proxy 8080:80
+kubectl -n kong-system port-forward service/kong-proxy 8080:80
 ```
 
 別ターミナルから curl を送る。PC から使う場合は SSH トンネルで
@@ -144,7 +144,7 @@ NodePort を選ぶ場合は VM のファイアウォールで検証元だけを�
 VM 上のリポジトリのルートで実行する。Python 標準ライブラリのみを使用する。
 
 ```bash
-sudo python3 scripts/check-routes.py
+python3 scripts/check-routes.py
 ```
 
 設定ファイルを読み、自動で Kong の port-forward を起動して、次の3項目を確認する。
@@ -176,7 +176,7 @@ Terminating / Error の Pod も削除されて0件になるまで待つ。
 待機時間を延ばす場合:
 
 ```bash
-sudo python3 scripts/check-routes.py --scale-zero-timeout 900
+python3 scripts/check-routes.py --scale-zero-timeout 900
 ```
 
 旧 http-echo 版の2経路HTTPと手動スケールゼロ復帰はユーザー報告あり。

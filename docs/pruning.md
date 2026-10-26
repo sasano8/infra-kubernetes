@@ -12,14 +12,14 @@ Git でファイルが削除されても、Kubernetes のリソースは自動�
 
 ```bash
 git pull origin main
-sudo ./bin/infra up --require-https
-sudo python3 scripts/check-routes.py
+./bin/infra up --require-https
+python3 scripts/check-routes.py
 ```
 
 まず削除計画を作成する。このコマンドはクラスタを変更しない。
 
 ```bash
-sudo python3 scripts/prune-resources.py plan
+python3 scripts/prune-resources.py plan
 ```
 
 出力と `.local/resource-inventory/prune-plan.json` を確認する。
@@ -34,7 +34,7 @@ plan は名前・種類・Namespace・UID・元のコミット・保留理由の
 内容を確認してから、明示的に削除を実行する。
 
 ```bash
-sudo python3 scripts/prune-resources.py apply
+python3 scripts/prune-resources.py apply
 ```
 
 `apply` は実際に削除するコマンド。現在の定義、クラスタ UID、各リソースの UID・所有情報・
@@ -53,8 +53,8 @@ Ready でない場合は止まる。結果は `.local/resource-inventory/prune-r
 開始コミットを限定したい場合:
 
 ```bash
-sudo python3 scripts/prune-resources.py plan --from-ref <開始コミット>
-sudo python3 scripts/prune-resources.py apply
+python3 scripts/prune-resources.py plan --from-ref <開始コミット>
+python3 scripts/prune-resources.py apply
 ```
 
 `--from-ref` はそのコミットを含み、HEAD までの範囲を調べる。

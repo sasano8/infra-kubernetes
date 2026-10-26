@@ -27,8 +27,6 @@ def main():
     arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine())
     if not arch:
         raise ValueError("対応CPUはamd64 / arm64です")
-    if os.geteuid() != 0:
-        raise ValueError("/usr/local/binへ導入するため、sudo付きのmake install-helmを使用してください")
     with tempfile.TemporaryDirectory(prefix="infra-helm-install-") as directory:
         directory = Path(directory)
         name = f"helm-{VERSION}-linux-{arch}.tar.gz"
@@ -48,8 +46,9 @@ def main():
             with package.extractfile(member) as source:
                 binary = directory / "helm"
                 binary.write_bytes(source.read())
-        DESTINATION.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["install", "-m", "0755", str(binary), str(DESTINATION)], check=True)
+        privilege = [] if os.geteuid() == 0 else ["sudo"]
+        subprocess.run([*privilege, "install", "-d", str(DESTINATION.parent)], check=True)
+        subprocess.run([*privilege, "install", "-m", "0755", str(binary), str(DESTINATION)], check=True)
     platform_plugins.require_helm()
     print("Helm " + VERSION + " を " + str(DESTINATION) + " へインストールしました。")
 

@@ -106,7 +106,7 @@ Hostもルート選択の条件になるため、任意のアプリホストの 
    ```
 
    ```bash
-   sudo ./bin/infra up --require-https
+   ./bin/infra up --require-https
    ```
 
 oauth2-proxy側には `--redirect-url=https://<auth_host>/oauth2/callback` が生成される。

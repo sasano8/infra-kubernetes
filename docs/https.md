@@ -52,10 +52,10 @@ Global API Key は使わない。トークンはチャット・Git に貼らな�
 Kong ホストのリポジトリのルートで、生成ディレクトリとファイルの所有者・権限を整え、非表示入力で保存する。
 
 ```bash
-sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 700 .local .local/secrets
-sudo touch .local/secrets/cloudflare-api-token
-sudo chown "$(id -un):$(id -gn)" .local/secrets/cloudflare-api-token
-sudo chmod 600 .local/secrets/cloudflare-api-token
+mkdir -p .local/secrets
+chmod 700 .local .local/secrets
+touch .local/secrets/cloudflare-api-token
+chmod 600 .local/secrets/cloudflare-api-token
 (
   umask 077
   read -r -s -p 'Cloudflare API token: ' cf_api_token
@@ -70,7 +70,7 @@ sudo chmod 600 .local/secrets/cloudflare-api-token
 Secret 値はログや生成マニフェストへ出力せず、API エラーに値が含まれる場合も表示しない。
 再実行時はファイルがあれば更新し、なければ所有ラベル付きの登録済み Secret を使用する。
 更新を継続できるようトークンを有効に保つ。失効・ローテーション時はファイルを置き換えて
-`sudo ./bin/infra apply-secret-cloudflare-token --kubectl 'k0s kubectl'` でSecretだけを更新できる。
+`./bin/infra apply-secret-cloudflare-token` でSecretだけを更新できる。
 
 ## 3. 設定
 
@@ -122,8 +122,8 @@ SSO用のGoogle callback登録と [Secretファイルの作成](sso.md#secret供
 
 ```bash
 git pull origin main
-sudo ./bin/infra validate --require-https
-sudo ./bin/infra up --require-https
+./bin/infra validate --require-https
+./bin/infra up --require-https
 ```
 
 新規 VM でも既存の専用 VM でも同じコマンド。
@@ -212,16 +212,16 @@ curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-meth
 ローカルの HTTP とスケールゼロ復帰は従来どおり確認できる。
 
 ```bash
-sudo python3 scripts/check-routes.py
+python3 scripts/check-routes.py
 ```
 
 証明書発行状況:
 
 ```bash
-sudo k0s kubectl -n test get issuer,certificate,certificaterequest,orders,challenges
-sudo k0s kubectl -n test describe certificate knative-wildcard-tls
-sudo k0s kubectl -n cert-manager logs deployment/cert-manager --tail=100
-sudo k0s kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
+kubectl -n test get issuer,certificate,certificaterequest,orders,challenges
+kubectl -n test describe certificate knative-wildcard-tls
+kubectl -n cert-manager logs deployment/cert-manager --tail=100
+kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
 ```
 
 Secret 本文は表示しない。DNS API の権限不足、ゾーン名の相違、TXT レコードの伝播、

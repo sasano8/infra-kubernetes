@@ -6,12 +6,13 @@ cloud-init 対応イメージの既定ユーザーに SSH 公開鍵を登録す�
 [SSH 公開鍵の登録](provisioning/aws-setup.md)を参照。
 
 初回構築の手順は [README](../README.md#インストール) にまとめている。
-設定ファイルをリダイレクトで配置し、`sudo ./bin/infra up` で構築する。
+k0sホストは`make install-k0s`でsudo付き導入する。作業ユーザーのkubectl接続を設定した後、
+設定ファイルを配置して`make up`をsudoなしで実行する。
 
 構築後はリポジトリのルートで実行する。
 
 ```bash
-sudo python3 scripts/check-routes.py
+python3 scripts/check-routes.py
 ```
 
 [構築の詳細](setup-details.md) / [動作確認の詳細](verification.md)

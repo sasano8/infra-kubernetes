@@ -12,7 +12,7 @@ buffer 側は両設定を `"true"` にする。[4経路の構成](four-routes.md
 
 ## 配備と前提
 
-既存環境では設定を確認してから `sudo bin/infra deploy --kubectl 'k0s kubectl'` で再配備する。
+既存環境では設定を確認してから `bin/infra deploy` で再配備する。
 [疎通確認](verification.md)の4経路・Host・スケールゼロ復帰を先に実施する。
 本文上限は64 MiB、遅延レスポンス上限は60秒、アプリの読み取り期限とKnativeの
 リクエスト期限は120秒、Kongの読み書き期限は180秒。

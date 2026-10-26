@@ -32,13 +32,13 @@ Gateway API のコントローラは無効にし、Gateway API CRD は追加し�
 
 ## 導入・既存構成からの移行
 
-新規構築は従来どおり `sudo ./bin/infra up`。
+新規構築は従来どおり `./bin/infra up`。
 起動済みの環境では以下を実行する。
 
 ```bash
 git pull origin main
-sudo ./bin/infra deploy --kubectl 'k0s kubectl'
-sudo python3 scripts/check-routes.py
+./bin/infra deploy
+python3 scripts/check-routes.py
 ```
 
 Kong の設定が ConfigMap 管理から Ingress 管理へ切り替わり、Pod は更新される。
@@ -67,8 +67,8 @@ Ingress 自体の名前は `standard` / `hello` を維持し、旧ホストの�
 アプリ用 Namespace は `test`、Knative Service 名は `hello`。
 ホスト名は `hello-test-ksvc.<knative_domain>` となる。
 ファイル配置はアプリ名を表す `apps/hello/`。
-`git pull origin main` 後に `sudo ./bin/infra up` を実行し、
-`sudo python3 scripts/check-routes.py` で新しい Namespace の経路を確認する。
+`git pull origin main` 後に `./bin/infra up` を実行し、
+`python3 scripts/check-routes.py` で新しい Namespace の経路を確認する。
 KIC の監視対象・Ingress・証明書の配置・確認スクリプトも新しい名前を使用する。
 通常経路の Kubernetes Service / Deployment 名は `hello-ssvc` とし、同じ `test` Namespace に置く。
 外部公開用 DNS も現在のホスト名に合わせる。
@@ -83,7 +83,7 @@ TLS 有効時は新 Namespace に Issuer・証明書・トークン Secret を�
 
 Knative の Namespace とサービス名の区切りを `--` から `-` に変更した。
 新規構築、Kong Ingress、確認スクリプトは同じ新形式を使用する。
-本リポジトリで作成した専用 VM は `sudo ./bin/infra up` で設定を更新する。
+本リポジトリで作成した専用 VM は `./bin/infra up` で設定を更新する。
 URL の反映と Ready を最大180秒待ってから、新しい Ingress を反映する。
 Cloudflare の公開ホスト名も新しい名前へ変更する。
 
@@ -103,11 +103,11 @@ Issuer・Certificate・TLS Secret は `test` に置き、KIC が Kong に反映�
 ## 状態確認
 
 ```bash
-sudo k0s kubectl -n kong-system get pods
-sudo k0s kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
-sudo k0s kubectl -n kong-system logs deployment/kong -c kong --tail=100
-sudo k0s kubectl -n test get ingress
-sudo k0s kubectl get ingressclass kong-ingress
+kubectl -n kong-system get pods
+kubectl -n kong-system logs deployment/kong -c ingress-controller --tail=100
+kubectl -n kong-system logs deployment/kong -c kong --tail=100
+kubectl -n test get ingress
+kubectl get ingressclass kong-ingress
 ```
 
 KIC 移行後はログ取得時にコンテナ名を指定する。
@@ -142,7 +142,7 @@ Issuer 名の変更により証明書が再発行される場合がある。
 旧 Kong は証明書の準備とアプリの Ready 確認後に0 Replicaへ変更し、
 Pod の消滅を待ってから新 Namespace の Kong を起動する。
 この切り替え中は一時的な通信断がある。旧 Namespace 自体や旧 Secret は自動削除しない。
-移行後は `sudo python3 scripts/check-routes.py` と外部 HTTPS の両方を確認する。
+移行後は `python3 scripts/check-routes.py` と外部 HTTPS の両方を確認する。
 旧リソースの名前は移行用の検出処理だけに残し、新規リソースには使用しない。
 
 Knative の旧 field-manager はリソース名ではなく Kubernetes の内部管理 ID。

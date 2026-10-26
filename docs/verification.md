@@ -20,7 +20,7 @@ VM で実施する手順。旧 http-echo 版では、ユーザーの AWS VM で2
 
 ```bash
 git pull origin main
-sudo python3 scripts/check-routes.py
+python3 scripts/check-routes.py
 ```
 
 `configs/environment/local.json` のドメイン設定を読み、Kong の port-forward を
@@ -42,16 +42,16 @@ Knative の初回リクエストが失敗した場合、復帰確認はスキッ
 
 ```bash
 # ポート変更、または通常の kubectl を使う場合
-sudo python3 scripts/check-routes.py --port 18081
+python3 scripts/check-routes.py --port 18081
 python3 scripts/check-routes.py --kubectl kubectl
 
 # ゼロになるまで最大15分待機する場合
-sudo python3 scripts/check-routes.py --scale-zero-timeout 900
+python3 scripts/check-routes.py --scale-zero-timeout 900
 
 # 証跡を残す場合
 mkdir -p .local/results
 set -o pipefail
-sudo python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
+python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
 ```
 
 ### 手動で確認する場合
@@ -63,14 +63,14 @@ sudo python3 scripts/check-routes.py 2>&1 | tee .local/results/routes.log
 VM のターミナル A:
 
 ```bash
-sudo k0s kubectl -n kong-system port-forward service/kong-proxy 8080:80
+kubectl -n kong-system port-forward service/kong-proxy 8080:80
 ```
 
 VM のターミナル B（リポジトリのルート）:
 
 ```bash
 set -euo pipefail
-k() { sudo k0s kubectl "$@"; }
+k() { kubectl "$@"; }
 mkdir -p .local/results
 date -u +%FT%TZ > .local/results/started-at.txt
 CONFIG=configs/environment/local.json

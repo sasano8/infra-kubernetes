@@ -5,10 +5,11 @@
 新規ホストの構築は、引き続きリポジトリのルートで実行する。
 
 ```bash
-sudo ./bin/infra up --require-https
+./bin/infra up --require-https
 ```
 
-設定・資格情報の事前検証と生成、k0s、Knative／Kourier、Namespace／KIC、証明書、
+k0s本体は別途`make install-k0s`で導入し、作業ユーザーのkubectlを設定しておく。
+`up`はsystemd操作をせず、設定・資格情報の事前検証と生成、Knative／Kourier、Namespace／KIC、証明書、
 SSO、アプリ、Kong／ルート、配備記録の順に進める。
 `up` と個別コマンドは同じPython関数を利用する。
 `mode=existing` は k0s／Knative本体・共通設定を自動変更しない。
@@ -32,7 +33,7 @@ APIの前提条件を満たすため導入／適用処理に残す。
 
 すべて同じenvironment JSON（既定 `configs/environment/local.json`）を使う。
 別ファイルは `--config`、接続先は `--kubectl` で指定する。
-既存k0sホストでの各コマンドには `--kubectl 'k0s kubectl'` を付ける。
+すべて作業ユーザーの設定済みkubectlを使用し、sudoは付けない。
 
 | コマンド | 対象 |
 | --- | --- |
@@ -56,9 +57,9 @@ APIの前提条件を満たすため導入／適用処理に残す。
 初回導入の順序は一括実行と同じ。例えばKnativeを導入し、設定を反映する場合：
 
 ```bash
-sudo ./bin/infra plugin install knative --kubectl 'k0s kubectl'
-sudo ./bin/infra apply-config-knative --kubectl 'k0s kubectl'
-sudo ./bin/infra wait-knative --kubectl 'k0s kubectl'
+./bin/infra plugin install knative
+./bin/infra apply-config-knative
+./bin/infra wait-knative
 ```
 
 ## 失敗した工程だけ再実行する
@@ -67,22 +68,22 @@ sudo ./bin/infra wait-knative --kubectl 'k0s kubectl'
 Issuer／Certificateの定義を変更していなければ、その再適用は不要。
 
 ```bash
-sudo ./bin/infra apply-secret-cloudflare-token --kubectl 'k0s kubectl'
-sudo ./bin/infra wait-certificates --kubectl 'k0s kubectl'
+./bin/infra apply-secret-cloudflare-token
+./bin/infra wait-certificates
 ```
 
 ドメインなど証明書の設定を変更した場合：
 
 ```bash
-sudo ./bin/infra apply-certificates --kubectl 'k0s kubectl'
-sudo ./bin/infra wait-certificates --kubectl 'k0s kubectl'
+./bin/infra apply-certificates
+./bin/infra wait-certificates
 ```
 
 アプリの定義を修正した場合：
 
 ```bash
-sudo ./bin/infra apply-apps --kubectl 'k0s kubectl'
-sudo ./bin/infra wait-apps --kubectl 'k0s kubectl'
+./bin/infra apply-apps
+./bin/infra wait-apps
 ```
 
 SSO有効時の初回個別適用は、KIC導入・証明書発行後に `apply-sso` → `wait-sso` →

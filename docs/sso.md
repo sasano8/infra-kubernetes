@@ -129,7 +129,7 @@ Googleアカウント自体や各アプリ独自のセッションをログア�
 3. ソースを更新し、メンテナンス中に設定・Lua・Kongをまとめて反映する。
 
    ```bash
-   sudo ./bin/infra up --require-https
+   ./bin/infra up --require-https
    ```
 
 4. シークレットウィンドウで通常アプリからログインし、元の `/get` に戻ることを確認する。
@@ -237,7 +237,7 @@ make wait-deployment-oauth2-proxy
 適用・再起動・待機はそれぞれ独立しているため、上の順に実行する。
 Cloudflareのトークン、Kongやアプリの配備をこの更新に含めない。
 
-既定の接続先は `sudo k0s kubectl`。別クラスタは例えば次のように指定する。
+既定の接続先は `kubectl`。別クラスタは例えば次のように指定する。
 
 ```bash
 make apply-secret-google-sso KUBECTL=kubectl SUDO=
@@ -322,8 +322,8 @@ KongコンテナやGoogleとの実通信はこのテストの対象外。
 いずれも127.0.0.1へのport-forwardだけを起動し、公開バイパスは作らない。
 
 ```bash
-sudo python3 scripts/check-routes.py --internal standard
-sudo python3 scripts/check-routes.py --internal knative
+python3 scripts/check-routes.py --internal standard
+python3 scripts/check-routes.py --internal knative
 ```
 
 通常は3ホスト、Knativeは3ホストと3サービスのPodゼロ→復帰を確認する。

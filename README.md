@@ -157,6 +157,22 @@ cd infra-kubernetes
 make install-k0s   # sudoでバイナリ配置・設定・systemd登録・起動
 ```
 
+`既存 CNI 設定と競合する可能性があります: 87-podman-bridge.conflist`で止まり、
+PodmanがNetavarkを使用している場合は、旧CNI設定を退避して再実行する。
+Podmanを利用する通常ユーザーで、sudoを付けずに実行する（必要な操作だけ内部でsudoを使用）。
+
+```bash
+make backup-cni-podman
+make install-k0s
+```
+
+スクリプトは通常ユーザーとrootのPodmanバックエンドが両方とも`netavark`であることを確認し、
+`/etc/cni/net.d/87-podman-bridge.conflist`だけを
+`/etc/cni/reset-backup/87-podman-bridge.conflist`へ退避する。
+CNI使用中・確認失敗・退避先が既に存在する場合は変更せず終了する。
+退避済みで元ファイルがなければ再実行しても変更しない。他のユーザーがPodmanを使うホストでは、
+そのユーザーもNetavarkを使用していることを事前に確認する。
+
 kubectlが既に対象クラスタへ接続できる場合は、その設定を使う。
 新規ホストで接続設定を作る場合は、管理者用kubeconfigを作業ユーザーの専用ファイルへ保存する。
 既存の`~/.kube/config`は上書きしない。このkubeconfigにはクラスタ管理者権限がある。

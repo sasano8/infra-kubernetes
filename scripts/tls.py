@@ -1,5 +1,6 @@
 """Optional Cloudflare DNS-01 certificates; no secret values in rendered files/logs."""
 import base64
+import errno
 import getpass
 import hashlib
 import json
@@ -319,6 +320,22 @@ def check_port(cluster, config, legacy_ports=()):
         try:
             probe.bind(("0.0.0.0", port))
         except OSError as exc:
+            if exc.errno in (errno.EACCES, errno.EPERM):
+                # A user cannot bind privileged ports; ss can inspect listeners
+                # without root and without changing host-wide port permissions.
+                try:
+                    result = subprocess.run(
+                        ["ss", "-H", "-ltn", f"sport = :{port}"],
+                        capture_output=True, text=True, check=True,
+                    )
+                except (OSError, subprocess.CalledProcessError) as check_exc:
+                    raise ValueError(
+                        f"TCP {port} 番の確認に失敗しました。ss（iproute2）を利用可能にしてください"
+                    ) from check_exc
+                if not result.stdout.strip():
+                    return
+            elif exc.errno != errno.EADDRINUSE:
+                raise ValueError(f"ホストの TCP {port} 番を確認できません: {exc}") from exc
             raise ValueError(f"ホストの TCP {port} 番が使用中です。既存プロセスを停止・変更しません") from exc
 
 

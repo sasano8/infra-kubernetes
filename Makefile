@@ -6,7 +6,7 @@ PYTHON ?= python3
 SUDO ?= sudo
 EDITOR ?= vi
 
-.PHONY: help install-k0s start-k0s stop-k0s status-k0s install-helm edit-config configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
+.PHONY: help install-k0s start-k0s stop-k0s status-k0s install-helm edit-config configure-secret-cloudflare-token configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
 
 help:
 	@printf '%s\n' \
@@ -15,6 +15,7 @@ help:
 	  'make start-k0s / stop-k0s / status-k0s   sudoでk0sの起動・停止・状態確認' \
 	  'make install-helm                        未導入ならHelm v3.19.0を導入、導入済みならバージョン確認' \
 	  'make edit-config                         環境設定JSONを編集' \
+	  'make configure-secret-cloudflare-token   保存先を表示してCloudflareトークンを非表示入力・保存' \
 	  'make configure-secret-google-sso         Google資格情報を非表示入力して作成・変更（Cookie鍵は維持）' \
 	  'make rotate-cookie-secret-google-sso     Cookie鍵も再生成（既存セッションを無効化）' \
 	  'make apply-secret-google-sso             Google資格情報をKubernetes Secretへ反映' \
@@ -45,6 +46,9 @@ edit-config:
 
 configure-secret-google-sso:
 	@$(PYTHON) scripts/infra.py configure-secret-google-sso --config "$(CONFIG)"
+
+configure-secret-cloudflare-token:
+	@$(PYTHON) scripts/infra.py configure-secret-cloudflare-token --config "$(CONFIG)"
 
 rotate-cookie-secret-google-sso:
 	@$(PYTHON) scripts/infra.py configure-secret-google-sso --rotate-cookie --config "$(CONFIG)"

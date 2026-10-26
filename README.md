@@ -245,18 +245,13 @@ pinnerは全Namespaceを監視し、annotationで明示したリソースを処�
 リポジトリのルートで以下を実行して貼り付ける（入力は画面に表示されない）。
 
 ```bash
-mkdir -p .local/secrets
-chmod 700 .local .local/secrets
-touch .local/secrets/cloudflare-api-token
-chmod 600 .local/secrets/cloudflare-api-token
-(
-  umask 077
-  read -r -s -p 'Cloudflare API token: ' cf_api_token
-  printf '\n'
-  printf '%s' "$cf_api_token" > .local/secrets/cloudflare-api-token
-  unset cf_api_token
-)
+make configure-secret-cloudflare-token
 ```
+
+入力前に、設定の`tls.cloudflare_token_file`から解決した保存先を表示する。
+既定の保存先は`.local/secrets/cloudflare-api-token`。トークンは非表示で入力し、
+権限600で保存する。空入力・入力取消では既存トークンを上書きしない。sudoは不要。
+この操作はローカルファイルへの保存だけで、Kubernetes Secretの反映は別操作。
 
 Google OAuthクライアントへ `https://auth.knative.tmp.ys-method-dev.com/oauth2/callback` を登録し、
 [SSOのSecret供給手順](docs/sso.md#secret供給)で `.local/secrets/google-sso.json` を権限600で作成する。

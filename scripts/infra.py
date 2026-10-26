@@ -787,7 +787,7 @@ def run_phase(action, cluster, c, output, plugin=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "host", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
+    parser.add_argument("action", choices=("configure", "validate", "render", "up", "deploy", "remove", "test-plan", "host", "configure-secret-cloudflare-token", "apply-secret-cloudflare-token", "configure-secret-google-sso", "apply-secret-google-sso", *PHASE_ACTIONS, "plugin"))
     parser.add_argument("plugin_action", nargs="?", choices=("install", "wait", "start", "stop", "status", "kubeconfig"))
     parser.add_argument("plugin_name", nargs="?", choices=("knative", "cert-manager", "kong", *platform_plugins.NAMES))
     parser.add_argument("--config", type=Path, default=ROOT / "configs/environment/local.json")
@@ -818,6 +818,9 @@ def main():
         remove(Cluster(args.kubectl))
         return
     c = load(args.config)
+    if args.action == "configure-secret-cloudflare-token":
+        tls.configure_token(c)
+        return
     if args.action == "configure-secret-google-sso":
         sso.configure_credentials(c, rotate_cookie=args.rotate_cookie)
         return

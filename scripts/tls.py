@@ -1,5 +1,6 @@
 """Optional Cloudflare DNS-01 certificates; no secret values in rendered files/logs."""
 import base64
+import getpass
 import hashlib
 import json
 from pathlib import Path
@@ -7,8 +8,13 @@ import re
 import socket
 import stat
 import subprocess
+import os
+import tempfile
+import warnings
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
 VERSION = "v1.19.1"
 MANIFEST_SHA256 = "876a41a57e36b85619f4124b24b3deb80912b5ffed515f90e2f160b6e6338e81"
 PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
@@ -22,6 +28,38 @@ DEFAULTS = {
     "acme_server": PRODUCTION,
     "host_https_port": 443,
 }
+
+
+def configure_token(config):
+    path = Path(config["tls"]["cloudflare_token_file"])
+    if not path.is_absolute():
+        path = ROOT / path
+    if path.is_symlink():
+        raise ValueError("トークンファイルのシンボリックリンクは更新しません")
+    print("Cloudflare APIトークンの保存先: " + str(path.absolute()), flush=True)
+    print("ファイル権限: 600（既存ファイルがあれば置き換えます）。入力値は表示しません。", flush=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for directory in (ROOT / ".local", ROOT / ".local/secrets"):
+        if directory in path.parents:
+            directory.chmod(0o700)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            token = getpass.getpass("Cloudflare API token: ").strip()
+    except (getpass.GetPassWarning, EOFError, KeyboardInterrupt):
+        raise ValueError("入力を中止しました。非表示入力できる対話端末から実行してください（保存していません）") from None
+    if not token or any(char.isspace() for char in token):
+        raise ValueError("トークンは空白・改行を含まない空でない値を入力してください（保存していません）")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".cloudflare-token-", delete=False) as file:
+            temporary = Path(file.name)
+            file.write(token)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    print("Cloudflare APIトークンを保存しました（値は非表示）。")
 
 
 def is_owned(resource):

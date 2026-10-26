@@ -27,21 +27,16 @@ Global API Key ではなく API トークンを使う。トークンをチャッ
 ## 2. トークンを Kong ホストに配置
 
 Kong ホストのリポジトリのルートで実行する。
-既に sudo で構築済みでも書き込めるよう、生成ディレクトリの所有者をログインユーザーに揃える。
+以前のsudo実行で`.local`がroot所有の場合は、先に作業ユーザーへ所有権を戻す。
 
 ```bash
-mkdir -p .local/secrets
-chmod 700 .local .local/secrets
-touch .local/secrets/cloudflare-api-token
-chmod 600 .local/secrets/cloudflare-api-token
-(
-  umask 077
-  read -r -s -p 'Cloudflare API token: ' cf_api_token
-  printf '\n'
-  printf '%s' "$cf_api_token" > .local/secrets/cloudflare-api-token
-  unset cf_api_token
-)
+make configure-secret-cloudflare-token
 ```
+
+入力前に、設定の`tls.cloudflare_token_file`から解決した保存先を表示する。
+既定の保存先は`.local/secrets/cloudflare-api-token`。トークンは非表示で入力し、
+権限600で保存する。空入力・入力取消では既存トークンを上書きしない。sudoは不要。
+この操作はローカルファイルへの保存だけで、Kubernetes Secretの反映は別操作。
 
 貼り付けても入力は表示されない。Enter で確定する。
 

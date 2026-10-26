@@ -255,8 +255,13 @@ make configure-secret-cloudflare-token
 
 Google OAuthクライアントへ `https://auth.knative.tmp.ys-method-dev.com/oauth2/callback` を登録し、
 [SSOのSecret供給手順](docs/sso.md#secret供給)で `.local/secrets/google-sso.json` を権限600で作成する。
-GoogleクライアントID・クライアントシークレット・Cookie鍵が必要。
-`make configure-secret-google-sso` で非表示入力して作成・変更できる。変更時のCookie鍵は維持する。
+次を実行し、GoogleクライアントID・クライアントシークレットを非表示入力する。
+
+```bash
+make configure-secret-google-sso
+```
+
+Cookie鍵は初回に自動生成し、ファイルは権限600で保存する。変更時のCookie鍵は維持する。
 既存Secretを外部管理している場合は `secret_file` を省略し、`test/google-sso` を事前に供給する。
 準備がない場合、`up` はSSOを無効にせず事前検証で停止する。
 

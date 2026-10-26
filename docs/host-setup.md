@@ -35,3 +35,7 @@ python3 scripts/check-routes.py
 ```
 
 [構築の詳細](setup-details.md) / [動作確認の詳細](verification.md)
+
+reset後の空ディレクトリや、本プロジェクトと同一内容の`/etc/k0s/k0s.yaml`だけでは
+既存クラスタと判定しない。実データ・異なる設定・サービス等が残る場合は、
+`make install-k0s`が対象パスを表示して停止する。残存データを自動削除して再導入はしない。

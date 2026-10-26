@@ -264,6 +264,30 @@ def fetch(url, destination):
          "--max-time", "600", "--proto", "=https", "--tlsv1.2", "--output", destination, url])
 
 
+def existing_k0s_paths(root=Path("/")):
+    """Empty reset remnants and our unchanged config are not a live installation."""
+    config = root / "etc/k0s/k0s.yaml"
+    matching_config = (config.is_file() and not config.is_symlink()
+                       and config.read_bytes() == (ROOT / "configs/kube/k0s.yaml").read_bytes())
+
+    def occupied(path):
+        if path.is_symlink():
+            return True
+        if not path.exists():
+            return False
+        if path == config and matching_config:
+            return False
+        if path.is_dir():
+            return any(occupied(child) for child in path.iterdir())
+        return True
+
+    directories = (root / "var/lib/k0s", root / "etc/k0s")
+    files = (root / "usr/local/bin/k0s", root / "etc/systemd/system/k0scontroller.service",
+             root / "etc/systemd/system/k0sworker.service")
+    return ([path for path in directories if occupied(path)]
+            + [path for path in files if path.exists() or path.is_symlink()])
+
+
 def install_host():
     if os.geteuid() != 0 or platform.system() != "Linux":
         raise ValueError("新規 Linux VM 上で sudo を付けて実行してください")
@@ -278,12 +302,11 @@ def install_host():
     state = Path("/var/lib/infra-kubernetes")
     marker = state / "k0s-version"
     owned = marker.exists() and marker.read_text().strip() == K0S
-    if not owned and any(p.exists() for p in (
-        Path("/var/lib/k0s"), Path("/etc/k0s"), Path("/usr/local/bin/k0s"),
-        Path("/etc/systemd/system/k0scontroller.service"),
-        Path("/etc/systemd/system/k0sworker.service"),
-    )):
-        raise ValueError("既存 k0s を検出しました。new-host は使用せず existing を選択してください")
+    if not owned:
+        remaining = existing_k0s_paths()
+        if remaining:
+            raise ValueError("既存k0sのファイル・データが残っています（自動上書きしません）: "
+                             + ", ".join(map(str, remaining)))
     if not owned and shutil.which("k0s"):
         raise ValueError("既存 k0s が PATH にあります。existing を使用してください")
     if not owned and Path("/etc/cni/net.d").is_dir():
@@ -347,6 +370,15 @@ def host_action(action):
         print("k0sホスト全体を停止・リセットします。クラスタ状態は削除されます。", flush=True)
         run([binary, "stop"])
         run([binary, "reset"])
+        config = Path("/etc/k0s/k0s.yaml")
+        if (config.is_file() and not config.is_symlink()
+                and config.read_bytes() == (ROOT / "configs/kube/k0s.yaml").read_bytes()):
+            config.unlink()
+            # Preserve unrelated files; only remove the directory if empty.
+            try:
+                config.parent.rmdir()
+            except OSError:
+                pass
         # Only remove the binary and our marker after k0s reset succeeds.
         binary.unlink(missing_ok=True)
         Path("/var/lib/infra-kubernetes/k0s-version").unlink(missing_ok=True)

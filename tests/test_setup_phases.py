@@ -17,6 +17,28 @@ import tls
 
 
 class SetupPhases(unittest.TestCase):
+    def test_reset_remnants_and_unchanged_host_config_allow_reinstallation(self):
+        root = Path(self.tmp.name) / 'host'
+        (root / 'var/lib/k0s/empty').mkdir(parents=True)
+        (root / 'etc/k0s').mkdir(parents=True)
+        (root / 'etc/k0s/k0s.yaml').write_bytes((ROOT / 'configs/kube/k0s.yaml').read_bytes())
+        self.assertEqual(infra.existing_k0s_paths(root), [])
+
+    def test_real_cluster_data_and_unknown_config_still_block_reinstallation(self):
+        root = Path(self.tmp.name) / 'host'
+        (root / 'var/lib/k0s/etcd').mkdir(parents=True)
+        (root / 'var/lib/k0s/etcd/data').write_text('cluster-data')
+        (root / 'etc/k0s').mkdir(parents=True)
+        (root / 'etc/k0s/k0s.yaml').write_text('custom-config')
+        self.assertEqual(infra.existing_k0s_paths(root), [root / 'var/lib/k0s', root / 'etc/k0s'])
+        self.assertEqual((root / 'var/lib/k0s/etcd/data').read_text(), 'cluster-data')
+
+    def test_reset_remnant_symlinks_are_not_treated_as_empty(self):
+        root = Path(self.tmp.name) / 'host'
+        (root / 'etc').mkdir(parents=True)
+        (root / 'etc/k0s').symlink_to(root / 'missing', target_is_directory=True)
+        self.assertEqual(infra.existing_k0s_paths(root), [root / 'etc/k0s'])
+
     def test_make_separates_privileged_host_operations_from_user_deployment(self):
         for target in ('up', 'apply-secret-google-sso', 'restart-deployment-oauth2-proxy', 'wait-deployment-oauth2-proxy', 'install-helm'):
             result = subprocess.run(['make', '-n', target], cwd=ROOT, check=True, capture_output=True, text=True)

@@ -407,6 +407,13 @@ KnativeアプリはService本体の `metadata.labels` に
 
 ## Google Workspace SSO
 
+認証ホストの `https://<sso.auth_host>/` に、ログイン・ログアウトボタンを用意する。
+ログインボタンでGoogle SSOへ進み、認証後はこのページへ戻る。
+ログアウトボタンは全アプリ共通のSSO Cookieを削除してこのページへ戻るため、
+勝手に再ログインは始まらない。Google自体のログイン状態は維持される。
+ページ自体は未認証でも表示でき、現在のログイン状態は表示しない。
+各アプリにも、この認証ホストへのリンクを置ける。
+
 このREADMEの構築例は `sso.enabled=true`。無効にする場合は明示的にfalseを指定する。
 ルートのbrowser／api／publicポリシーに従い、
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。

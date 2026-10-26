@@ -110,7 +110,7 @@ local function setup()
     },
     response = {
       exit = function(s, b, h)
-        result = {status = s, headers = h}
+        result = {status = s, body = b, headers = h}
         return result
       end,
       -- The real response PDK returns only the first value from get_header.
@@ -372,7 +372,32 @@ test('public route strips spoofed identity but does not authenticate', function(
   assert(calls == 0 and result == nil and cleared['X-Auth-Request-Email'])
 end)
 
-test('oauth callbacks are the only public auth endpoints', function()
+test('auth landing page offers explicit login and logout without checking session', function()
+  conf.mode = 'oauth'
+  request.host = conf.auth_host
+  conf.hosts = {conf.auth_host}
+  request.path = '/'
+
+  handler:access(conf)
+
+  assert(result.status == 200 and calls == 0)
+  assert(result.body:find('action="/oauth2/start"', 1, true))
+  assert(result.body:find('action="/oauth2/sign_out"', 1, true))
+  assert(result.body:find('name="rd" value="/"', 1, true))
+  assert(result.headers['Content-Type'] == 'text/html; charset=utf-8')
+  assert(result.headers['Cache-Control'] == 'no-store')
+end)
+
+test('auth landing page is not served on application hosts', function()
+  conf.mode = 'oauth'
+  request.path = '/'
+
+  handler:access(conf)
+
+  assert(result.status == 403 and calls == 0)
+end)
+
+test('oauth internal authentication endpoint remains private', function()
   conf.mode = 'oauth'
   request.host = conf.auth_host
   conf.hosts = {conf.auth_host}

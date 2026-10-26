@@ -254,7 +254,9 @@ def render(c, output, route_ids):
     items.append(resource("v1", "Service", "oauth2-proxy", "test", spec={"selector": {"app": "oauth2-proxy"},
                         "ports": [{"name": "http", "port": 4180, "targetPort": "http"}]}))
     rules = [{"host": h, "http": {"paths": [{"path": "/oauth2", "pathType": "Prefix", "backend": {
-        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in [s["auth_host"]]]
+        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}},
+        {"path": "/", "pathType": "Exact", "backend": {
+            "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in [s["auth_host"]]]
     ingress = resource("networking.k8s.io/v1", "Ingress", "oauth2-proxy", "test", spec={
         "ingressClassName": "kong-ingress", "rules": rules,
         "tls": [{"hosts": [s["auth_host"]], "secretName": auth_certificate(c)}]})

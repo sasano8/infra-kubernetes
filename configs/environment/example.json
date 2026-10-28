@@ -20,6 +20,11 @@
     "external-secrets": {},
     "pinner": {"enabled": false}
   },
+  "error_service": {
+    "name": "platform-portal",
+    "namespace": "test",
+    "port": 8080
+  },
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "base_domain": "example.test",
   "default_routes": {

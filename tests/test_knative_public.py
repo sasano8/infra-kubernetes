@@ -36,7 +36,7 @@ class KnativePublicTests(unittest.TestCase):
         infra.render(config, self.directory)
         routes = (self.directory / "routes.yaml").read_text()
         self.assertIn('host: "*.knative-public.example.test"', routes)
-        self.assertIn('konghq.com/plugins: "sso-knative-public"', routes)
+        self.assertIn('konghq.com/plugins: "strip-error-reason,sso-knative-public"', routes)
         domain = (self.directory / "knative-config/domain.yaml").read_text()
         self.assertIn('infra.sasano8.dev/route: knative_public', domain)
         items = json.loads((self.directory / "sso.json").read_text())["items"]

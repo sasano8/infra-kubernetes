@@ -47,7 +47,10 @@ def main():
         config = infra.load(path / "config.json")
         infra.render(config, path / "rendered")
         apps = list(yaml.safe_load_all((path / "rendered/apps.yaml").read_text()))
-        code = next(i for i in apps if i["kind"] == "ConfigMap" and i["metadata"]["name"] == "route-errors")
+        code = next(i for i in apps if i["kind"] == "ConfigMap" and i["metadata"]["name"] == "sso-portal")
+        generated_routes = list(yaml.safe_load_all((path / "rendered/routes.yaml").read_text()))
+        reason_plugin = next(i for i in generated_routes if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "routing-error-reason")
+        strip_plugin = next(i for i in generated_routes if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "strip-error-reason")
         for filename, content in code["data"].items():
             (path / filename).write_text(content)
         (path / "app.py").write_text('''from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,7 +58,7 @@ class App(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(404 if self.path == "/status/404" else 200)
         self.end_headers()
-        self.wfile.write(b"application response")
+        self.wfile.write((self.headers.get("X-Infra-Error", "absent").encode() if self.path == "/echo-error-header" else b"application response"))
     def log_message(self, *args): pass
 ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
 ''')
@@ -75,10 +78,15 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             # Same domain expansion as net-kourier's domainsForRule.
             routes = [{"match": {"prefix": "/"}, "route": {"cluster": cluster}}]
             if cluster == "fallback":
+                routes[0]["request_headers_to_add"] = [{"header": {"key": "X-Infra-Error", "value": "unknown_host"},
+                                                       "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"}]
+            if cluster == "fallback":
                 # InsertProbe plus headersToAdd in net-kourier/networking.
                 routes.insert(0, {"match": {"prefix": "/", "headers": [{"name": "K-Network-Hash",
                     "string_match": {"exact": "override"}}]}, "route": {"cluster": cluster},
-                    "request_headers_to_add": [{"header": {"key": "K-Network-Hash", "value": fallback_hash},
+                    "request_headers_to_add": [{"header": {"key": "X-Infra-Error", "value": "unknown_host"},
+                                                "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"},
+                                               {"header": {"key": "K-Network-Hash", "value": fallback_hash},
                                                 "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"}]})
             domains = [domain for name in fallback_hosts for domain in (name, name + ":*")] if cluster == "fallback" else [host, host + ":*"]
             return {"name": host, "domains": domains, "routes": routes}
@@ -104,12 +112,12 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
                        capture_output=True, check=True)
         (path / "tls.key").chmod(0o644)  # Ephemeral fixture key, readable by the Kong container user.
         kong = {"_format_version": "3.0", "services": [
-            {"name": "app", "url": "http://app:8080", "routes": [
+            {"name": "app", "url": "http://app:8080", "plugins": [{"name": "request-transformer", "config": strip_plugin["config"]}], "routes": [
                 {"name": "standard", "hosts": [standard_host], "paths": ["/"], "strip_path": False, "preserve_host": True}]},
-            {"name": "kourier", "url": "http://kourier:8080", "routes": [
+            {"name": "kourier", "url": "http://kourier:8080", "plugins": [{"name": "request-transformer", "config": strip_plugin["config"]}], "routes": [
                 {"name": "public", "hosts": [wildcard], "paths": ["/"], "strip_path": False, "preserve_host": True},
                 {"name": "private-existing", "hosts": [private_host], "paths": ["/"], "strip_path": False, "preserve_host": True}]},
-            {"name": "fallback", "url": "http://route-errors:8081", "routes": [
+            {"name": "fallback", "url": "http://route-errors:8080", "plugins": [{"name": "pre-function", "config": reason_plugin["config"]}], "routes": [
                 {"name": "fallback", "paths": ["/"], "strip_path": False, "preserve_host": True}]}],
                 "certificates": [{"cert": (path / "tls.crt").read_text(), "key": (path / "tls.key").read_text(),
                                   "snis": [{"name": wildcard}]}]}
@@ -129,7 +137,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             docker("network", "create", name)
             created_network = True
             start("route-errors", "python:3.13-alpine", ("python3", "/fixtures/server.py"),
-                  ("--mount", f"type=bind,src={path},dst=/code,readonly"))
+                  ("--mount", f"type=bind,src={path},dst=/site,readonly"))
             start("app", "python:3.13-alpine", ("python3", "/fixtures/app.py"))
             start("kourier", "envoyproxy/envoy:v1.34-latest", ("-c", "/fixtures/envoy.json", "--concurrency", "1"))
             gateway = start("kong", "kong:3.9.1", flags=(
@@ -181,7 +189,10 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
                 if host in (standard_host, public_host) and expected == 404:
                     assert body == b"application response", "Application 404 body was replaced"
                 if expected == 421:
-                    assert json.loads(body) == {"error": "unknown_host"}
+                    problem = json.loads(body)
+                    assert problem["code"] == "unknown_host" and problem["status"] == 421
+                    assert problem["type"] == "about:blank"
+                    assert any(k.lower() == "content-type" and v == "application/problem+json" for k, v in headers.items())
                     assert "Location" not in headers and "Set-Cookie" not in headers
             verified = ssl.create_default_context(cafile=str(path / "tls.crt"))
             assert request(unknown_app, context=verified)[0] == 421
@@ -198,7 +209,11 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             status, _, headers = request(unknown_app, headers={"K-Network-Probe": "probe", "K-Network-Hash": "override"})
             returned_hash = next((value for key, value in headers.items() if key.lower() == "k-network-hash"), None)
             assert (status, returned_hash) == (200, fallback_hash), (status, returned_hash)
-            print("Kong/Envoy routing and TLS checks: 14 passed")
+            status, body, _ = request(public_host, "/echo-error-header", headers={"X-Infra-Error": "unknown_host"})
+            assert status == 200 and body == b"absent", "Client error hint reached an application"
+            status, _, _ = request(invalid_domain, headers={"X-Infra-Error": "path_not_found", "K-Network-Probe": "probe", "K-Network-Hash": "a" * 64})
+            assert status == 421, "Client headers changed Kong fallback classification"
+            print("Kong/Envoy routing and TLS checks: 16 passed")
         except Exception:
             for container in containers:
                 print(docker("logs", "--tail", "40", container), file=sys.stderr)

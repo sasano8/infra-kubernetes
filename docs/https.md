@@ -94,6 +94,7 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
     "cookie_expire_hours": 72,
     "secret_file": ".local/secrets/google-sso.json"
   },
+  "error_service": {"name": "platform-portal", "namespace": "test", "port": 8080},
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "base_domain": "tmp.ys-method-dev.com",
   "default_routes": {

@@ -249,6 +249,7 @@ cat > configs/environment/local.json <<'EOF'
     "infisical": {"enabled": true},
     "pinner": {"enabled": true}
   },
+  "error_service": {"name": "platform-portal", "namespace": "test", "port": 8080},
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "base_domain": "tmp.ys-method-dev.com",
   "default_routes": {
@@ -453,6 +454,9 @@ SSO有効時は通常のKnativeアプリ `test/sso` を `knative_public` 経路�
 ログアウトボタンは全アプリ共通のSSO Cookieを削除してこのページへ戻るため、
 勝手に再ログインは始まらない。Google自体のログイン状態は維持される。
 ページ自体は未認証でも表示でき、現在のログイン状態は表示しない。
+既定ではこのアプリがエラー生成も兼ね、`min-scale: 1`で常駐する。
+転送先は単一の `error_service` で指定し、独立したエラー用Deploymentは作らない。
+エラー生成サービスの404／421応答はRFC 9457の `application/problem+json`。詳細は [エラーサービス](docs/error-service.md)を参照。
 各アプリにも、このログインページへのリンクを置ける。
 KongはHTMLを生成せず、認証ホストでは `/oauth2/*` だけをoauth2-proxyへ転送する。
 認証ホストの `/` は公開ページではない。Googleのcallback設定と共有Cookieの範囲は変更不要。

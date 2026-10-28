@@ -63,8 +63,8 @@ class IDTokenForwardingTests(unittest.TestCase):
         self.assertIn("--pass-authorization-header=false", args)
         self.assertIn("--pass-access-token=false", args)
         routes = (self.path / "routes.yaml").read_text()
-        self.assertEqual(routes.count('konghq.com/plugins: "sso-knative-nobuffer-domain"'), 2)
-        self.assertEqual(routes.count('konghq.com/plugins: "sso-standard-nobuffer-domain"'), 2)
+        self.assertEqual(routes.count('konghq.com/plugins: "strip-error-reason,sso-knative-nobuffer-domain"'), 2)
+        self.assertEqual(routes.count('konghq.com/plugins: "strip-error-reason,sso-standard-nobuffer-domain"'), 2)
         self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 4)
 
     def test_all_four_route_ids_are_supported_without_enabling_oauth_endpoints(self):

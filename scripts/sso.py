@@ -40,20 +40,31 @@ def portal_origin(c):
     return "https://" + portal_host(c) + ("" if port == 443 else ":" + str(port))
 
 
+def uses_builtin_error_service(c):
+    return c["error_service"]["name"] == "platform-portal" and c["error_service"]["namespace"] == "test"
+
+
+def needs_portal(c):
+    return c["sso"]["enabled"] or uses_builtin_error_service(c)
+
+
 def render_portal(c, output):
-    if not c["sso"]["enabled"]:
+    if not needs_portal(c):
         return
-    page = string.Template((ROOT / "apps/sso/index.html.tmpl").read_text()).substitute(
+    page = (string.Template((ROOT / "apps/sso/index.html.tmpl").read_text()).substitute(
         login_url=html.escape(origin(c) + "/oauth2/start", quote=True),
         logout_url=html.escape(origin(c) + "/oauth2/sign_out", quote=True),
-        return_url=html.escape(portal_origin(c) + "/", quote=True))
-    config = resource("v1", "ConfigMap", "sso-portal", "test", data={"index.html": page})
+        return_url=html.escape(portal_origin(c) + "/", quote=True)) if c["sso"]["enabled"] else
+        '<!doctype html><html lang="ja"><meta charset="utf-8"><title>Platform portal</title><h1>Platform portal</h1></html>')
+    server_code = (ROOT / "apps/platform-portal/server.py").read_text()
+    config = resource("v1", "ConfigMap", "sso-portal", "test", data={"index.html": page, "server.py": server_code})
     service = resource("serving.knative.dev/v1", "Service", "sso", "test", spec={
-        "template": {"metadata": {"annotations": {"autoscaling.knative.dev/min-scale": "0",
-                                                "infra.sasano8.dev/page-sha": hashlib.sha256(page.encode()).hexdigest()}},
+        "template": {"metadata": {"annotations": {"autoscaling.knative.dev/min-scale": "1" if uses_builtin_error_service(c) else "0",
+                                                "infra.sasano8.dev/page-sha": hashlib.sha256((page + server_code).encode()).hexdigest()},
+                                  "labels": {"infra.sasano8.dev/component": "platform-portal"}},
                      "spec": {"containers": [{
                          "name": "http", "image": "python:3.13-alpine",
-                         "command": ["python3", "-m", "http.server", "8080", "--directory", "/site"],
+                         "command": ["python3", "/site/server.py"],
                          "ports": [{"containerPort": 8080}],
                          "volumeMounts": [{"name": "site", "mountPath": "/site", "readOnly": True}],
                          "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
@@ -66,7 +77,11 @@ def render_portal(c, output):
     service["metadata"]["labels"] = dict(OWNER, **{"infra.sasano8.dev/route": "knative_public"})
     target = output / "apps.yaml"
     with target.open("a") as stream:
-        for item in (config, service):
+        direct = resource("v1", "Service", "platform-portal", "test", spec={
+            "selector": {"serving.knative.dev/service": "sso", "infra.sasano8.dev/component": "platform-portal"},
+            "ports": [{"name": "http", "port": c["error_service"]["port"] if uses_builtin_error_service(c) else 8080,
+                       "targetPort": 8080}]})
+        for item in (config, service, direct):
             stream.write("\n---\n" + json.dumps(item, indent=2) + "\n")
 
 
@@ -273,7 +288,7 @@ def render(c, output, route_ids):
         items.append(plugin(name, c["routes"][route]["auth"],
                             ["*." + c["routes"][route]["domain"]] if route == "knative_public" else all_hosts,
                             route in s["id_token_routes"]))
-        annotations[route] = '    konghq.com/plugins: "' + name + '"'
+        annotations[route] = name
     items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
     args = ["--provider=google", "--http-address=0.0.0.0:4180", "--upstream=static://202",
             "--reverse-proxy=true", "--redirect-url=" + origin(c) + "/oauth2/callback", "--set-xauthrequest=true",
@@ -361,10 +376,12 @@ def wait_ready(cluster):
 def cleanup_disabled(cluster, c):
     if c["sso"]["enabled"]:
         return
-    for kind, name, ns in (("ingress", "oauth2-proxy", "test"), ("deployment", "oauth2-proxy", "test"),
-                           ("service", "oauth2-proxy", "test"),
-                           ("services.serving.knative.dev", "sso", "test"),
-                           ("configmap", "sso-portal", "test")):
+    targets = [("ingress", "oauth2-proxy", "test"), ("deployment", "oauth2-proxy", "test"),
+               ("service", "oauth2-proxy", "test")]
+    if not needs_portal(c):
+        targets += [("services.serving.knative.dev", "sso", "test"), ("configmap", "sso-portal", "test"),
+                    ("service", "platform-portal", "test")]
+    for kind, name, ns in targets:
         result = cluster.call("get", kind + "/" + name, "-n", ns, "--ignore-not-found", "-o",
                               'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}', capture_output=True, text=True)
         if result.stdout.strip() == "infra-kubernetes":
@@ -385,6 +402,7 @@ RESOURCE_IDENTITIES = (
     ("configuration.konghq.com/v1", "KongPlugin", "sso-knative-nobuffer-domain", "test"),
     ("configuration.konghq.com/v1", "KongPlugin", "sso-oauth-endpoints", "test"),
     ("configuration.konghq.com/v1", "KongPlugin", "sso-knative-public", "test"),
+    ("v1", "Service", "platform-portal", "test"),
     ("v1", "ConfigMap", "sso-portal", "test"),
     ("serving.knative.dev/v1", "Service", "sso", "test"),
 )

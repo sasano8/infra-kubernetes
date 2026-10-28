@@ -1,69 +1,14 @@
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: route-errors
-  namespace: test
-  labels: {infra.sasano8.dev/owner: infra-kubernetes}
-data:
-  config.json: |
-    $error_config
-  server.py: |
-$error_server_source
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: route-errors
-  namespace: test
-  labels: {infra.sasano8.dev/owner: infra-kubernetes}
-spec:
-  replicas: 1
-  selector:
-    matchLabels: {app: route-errors}
-  template:
-    metadata:
-      labels: {app: route-errors}
-      annotations:
-        infra.sasano8.dev/code: "$error_code_hash"
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: http
-          image: python:3.13-alpine
-          command: [python3, /code/server.py]
-          ports:
-            - {name: kourier, containerPort: 8080}
-            - {name: kong, containerPort: 8081}
-          readinessProbe:
-            tcpSocket: {port: kong}
-          livenessProbe:
-            tcpSocket: {port: kourier}
-          resources:
-            requests: {cpu: 10m, memory: 32Mi}
-            limits: {cpu: 100m, memory: 64Mi}
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            allowPrivilegeEscalation: false
-            capabilities: {drop: [ALL]}
-            seccompProfile: {type: RuntimeDefault}
-          volumeMounts:
-            - {name: code, mountPath: /code, readOnly: true}
-      volumes:
-        - name: code
-          configMap: {name: route-errors}
----
-apiVersion: v1
 kind: Service
 metadata:
-  name: route-errors
+  name: error-service
   namespace: test
   labels: {infra.sasano8.dev/owner: infra-kubernetes}
 spec:
-  selector: {app: route-errors}
+  type: ExternalName
+  externalName: "$error_service_dns"
   ports:
-    - {name: kourier, port: 80, targetPort: 8080}
-    - {name: kong, port: 81, targetPort: 8081}
+    - {name: http, port: $error_service_port}
 ---
 apiVersion: networking.internal.knative.dev/v1alpha1
 kind: Ingress
@@ -81,8 +26,10 @@ spec:
       http:
         paths:
           - path: /
+            appendHeaders:
+              X-Infra-Error: unknown_host
             splits:
-              - serviceName: route-errors
+              - serviceName: error-service
                 serviceNamespace: test
-                servicePort: 80
+                servicePort: $error_service_port
                 percent: 100

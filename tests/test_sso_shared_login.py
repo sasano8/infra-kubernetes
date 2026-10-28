@@ -139,7 +139,10 @@ class SharedLoginTests(unittest.TestCase):
         before = (self.path / "routes.yaml").read_text()
         self.raw["sso"].update(auth_host="login.knative.example.test", cookie_domain="example.test")
         self.resources(self.load())
-        self.assertEqual(before, (self.path / "routes.yaml").read_text())
+        after = (self.path / "routes.yaml").read_text()
+        self.assertEqual([doc for doc in before.split("---") if "kind: Ingress\n" in doc],
+                         [doc for doc in after.split("---") if "kind: Ingress\n" in doc])
+        self.assertIn('login.knative.example.test', after)
         self.assertEqual(before.count('konghq.com/request-buffering: "false"'), 2)
         self.assertEqual(before.count('konghq.com/response-buffering: "false"'), 2)
 

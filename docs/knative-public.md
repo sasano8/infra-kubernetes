@@ -68,7 +68,8 @@ SSO有効時も未認証でアプリへ到達する。Kongは共有SSO Cookieと
 
 ## ログイン・ログアウト画面
 
-SSO有効時は `test/sso` をこの経路に配備する。
+SSO有効時は `test/sso` をこの経路に配備する。既定ではエラー生成も同居し、`min-scale: 1`で常駐する。
+別の [エラーサービス](error-service.md) を指定した場合は、ログイン画面をスケールゼロ可能にする。
 
 ```text
 https://sso-test-ksvc.knative-public.backoffice.ys-method-dev.com/

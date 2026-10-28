@@ -81,7 +81,7 @@ def load(path):
     c.setdefault("base_domain", None)
     required = {"mode", "routes", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins", "error_service"}
     if missing or unknown:
         errors = []
         if missing:
@@ -100,6 +100,21 @@ def load(path):
     if c["base_domain"] is not None:
         dns_name(c["base_domain"], "base_domain")
     dns_name(c["kourier_service"], "kourier_service")
+    endpoint = c.get("error_service", {"name": "platform-portal", "namespace": "test", "port": 8080})
+    if not isinstance(endpoint, dict) or set(endpoint) != {"name", "namespace", "port"}:
+        raise ValueError("error_service は name / namespace / port を指定してください")
+    for field in ("name", "namespace"):
+        value = endpoint[field]
+        if not isinstance(value, str) or len(value) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", value):
+            raise ValueError("error_service." + field + ": DNSラベルを指定してください")
+    if type(endpoint["port"]) is not int or not 1 <= endpoint["port"] <= 65535:
+        raise ValueError("error_service.port は1〜65535の整数です")
+    if endpoint["namespace"] == "test" and endpoint["name"] in ("error-service", "route-errors", "kourier-proxy"):
+        raise ValueError("error_service: alias自身・旧エラーService・Kourierを転送先には指定できません")
+    if (endpoint["name"] + "." + endpoint["namespace"] == ".".join(c["kourier_service"].split(".")[:2])
+            or (endpoint["name"], endpoint["namespace"]) == ("kong-proxy", "kong-system")):
+        raise ValueError("error_service: KongやKourierへ戻る転送先は指定できません")
+    c["error_service"] = dict(endpoint)
     if not isinstance(c["routes"], dict) or set(c["routes"]) != set(PUBLIC_ROUTES):
         raise ValueError("routesには5つの公開経路IDを指定してください: " + ", ".join(PUBLIC_ROUTES))
     for route_id, route in c["routes"].items():
@@ -237,11 +252,27 @@ def render(c, output):
         values[kind + "_default_tls"] = (
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
-    auth = sso.render(c, output, c["routes"])
+    route_plugins = sso.render(c, output, c["routes"])
+    def auth_annotation(route):
+        plugins = ["strip-error-reason"]
+        if route in route_plugins:
+            plugins.append(route_plugins[route])
+        return '    konghq.com/plugins: "' + ','.join(plugins) + '"'
     for route in PUBLIC_ROUTES:
-        values[route.removesuffix("_domain") + "_auth"] = auth.get(route, '    konghq.com/plugins: ""')
+        values[route.removesuffix("_domain") + "_auth"] = auth_annotation(route)
     for kind in ("standard", "knative"):
-        values[kind + "_default_auth"] = auth.get(resolve_route(c, kind), '    konghq.com/plugins: ""')
+        values[kind + "_default_auth"] = auth_annotation(resolve_route(c, kind))
+    known_hosts = sso.hosts(c)
+    if c["sso"]["enabled"]:
+        known_hosts += [c["sso"]["auth_host"], sso.portal_host(c)]
+    known_lua = '{' + ','.join('[' + json.dumps(host) + ']=true' for host in known_hosts) + '}'
+    values["kong_error_reason_source"] = textwrap.indent(
+        'local known = ' + known_lua + '\n'
+        'local reason = known[kong.request.get_host()] and "path_not_found" or "unknown_host"\n'
+        'kong.service.request.set_header("X-Infra-Error", reason)\n'
+        'kong.service.request.clear_header("K-Network-Probe")\n'
+        'kong.service.request.clear_header("K-Network-Hash")', '      ')
+    values["error_service_port"] = c["error_service"]["port"]
     enabled = c["sso"]["enabled"]
     values["sso_env"] = ('            - {name: KONG_PLUGINS, value: "bundled,session-auth"}\n'
                          '            - {name: KONG_LUA_PACKAGE_PATH, value: "/opt/?.lua;;"}' if enabled else "")
@@ -257,14 +288,9 @@ def render(c, output):
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
     sso.render_portal(c, output)
-    error_source = (ROOT / "apps/route-errors/server.py").read_text()
-    known_hosts = sso.hosts(c)
-    if c["sso"]["enabled"]:
-        known_hosts += [c["sso"]["auth_host"], sso.portal_host(c)]
-    error_config = json.dumps({"known_hosts": known_hosts})
     errors = string.Template((ROOT / "apps/route-errors/manifests/apps.yaml.tmpl").read_text()).substitute(
-        error_config=error_config, error_server_source=textwrap.indent(error_source, "    "),
-        error_code_hash=hashlib.sha256((error_source + error_config).encode()).hexdigest(),
+        error_service_dns=c["error_service"]["name"] + "." + c["error_service"]["namespace"] + ".svc.cluster.local",
+        error_service_port=c["error_service"]["port"],
         error_knative_hosts=json.dumps(["*." + route["domain"] for route in c["routes"].values()
                                        if route["kind"] == "knative"]))
     with (output / "apps.yaml").open("a") as stream:
@@ -614,13 +640,12 @@ def apply_apps(cluster, output):
 
 def wait_apps(cluster, c):
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
-    cluster.call("rollout", "status", "deployment/route-errors", "-n", "test", "--timeout=300s")
     cluster.call("wait", "ingresses.networking.internal.knative.dev/route-errors", "-n", "test",
                  "--for=condition=Ready", "--timeout=300s")
     services = [("hello", c["routes"]["knative_domain"]["domain"]),
                 ("hello-nobuffer", c["routes"]["knative_nobuffer_domain"]["domain"]),
                 ("hello-default", c["routes"][resolve_route(c, "knative")]["domain"])]
-    if c["sso"]["enabled"]:
+    if sso.needs_portal(c):
         services.append(("sso", c["routes"]["knative_public"]["domain"]))
     for name, domain in services:
         cluster.call("wait", "ksvc/" + name, "-n", "test", "--for=condition=Ready", "--timeout=300s")
@@ -690,9 +715,19 @@ def deploy(cluster, c, output):
     if c["sso"]["enabled"]:
         apply_routes(cluster, output)
     cluster.call("delete", "configmap/kong-declarative", "-n", "kong-system", "--ignore-not-found")
+    cleanup_legacy_error_service(cluster)
     platform_plugins.up(cluster, c, ensure_namespaces)
     inventory.record(cluster, c)
     print("配備完了。HTTP とスケールゼロ復帰は docs/verification.md に沿って確認してください。")
+
+
+def cleanup_legacy_error_service(cluster):
+    for kind in ("deployment", "service", "configmap"):
+        found = cluster.call("get", kind + "/route-errors", "-n", "test", "--ignore-not-found", "-o",
+                             'go-template={{with .metadata.labels}}{{index . "infra.sasano8.dev/owner"}}{{end}}',
+                             capture_output=True, text=True)
+        if found.stdout.strip() == "infra-kubernetes":
+            cluster.call("delete", kind + "/route-errors", "-n", "test", "--ignore-not-found")
 
 
 KIC_CLUSTER_RESOURCES = (

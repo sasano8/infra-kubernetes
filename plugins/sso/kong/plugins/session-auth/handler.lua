@@ -1,5 +1,5 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.4.2" }
+local Handler = { PRIORITY = 1500, VERSION = "1.5.0" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
@@ -33,6 +33,7 @@ function Handler:access(conf)
   local id_token_header = conf.id_token_header or default_id_token_header
   kong.service.request.clear_header(default_id_token_header)
   kong.service.request.clear_header(id_token_header)
+  kong.service.request.clear_header("X-Infra-Error")
   kong.service.request.clear_header("Forwarded")
   kong.service.request.clear_header("X-Auth-Request-Redirect")
   kong.service.request.set_header("X-Forwarded-Proto", "https")

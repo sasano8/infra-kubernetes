@@ -55,8 +55,13 @@ def main():
         if status != expected:
             raise RuntimeError(f"{label}: HTTP {status}、期待値 {expected}")
         if expected == 421:
-            if json.loads(body) != {"error": "unknown_host"} or any(
-                    key.lower() in ("location", "set-cookie") for key in headers):
+            problem = json.loads(body)
+            content_type = next((value for key, value in headers.items() if key.lower() == "content-type"), "")
+            valid_problem = (isinstance(problem, dict) and problem.get("code") == "unknown_host"
+                             and problem.get("status") == 421 and isinstance(problem.get("type", "about:blank"), str)
+                             and content_type.split(";", 1)[0].strip().lower() == "application/problem+json")
+            redirected_or_cookie = any(key.lower() in ("location", "set-cookie") for key in headers)
+            if not valid_problem or redirected_or_cookie:
                 raise RuntimeError(f"{label}: 421の応答本文・ヘッダーが想定と異なります")
         print(f"PASS HTTP {expected}: {label}")
     print("結果: 4/4 成功。Kong/Kourierの未公開ホスト421と、既存アプリの404を確認しました。")

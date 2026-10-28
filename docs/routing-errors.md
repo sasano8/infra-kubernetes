@@ -2,7 +2,7 @@
 
 ワイルドカードDNSは、アプリが存在しない名前もKongへ到達させる。
 DNSのNXDOMAINをHTTPで返すことはできないため、HTTPまで到達した未公開ホストには
-`421 Misdirected Request` と `{"error":"unknown_host"}` を返す。別URLやGoogleログインへは転送しない。
+`421 Misdirected Request` と `application/problem+json` の `code: unknown_host` を返す。別URLやGoogleログインへは転送しない。
 
 | 要求 | 期待する動作 |
 | --- | --- |
@@ -10,7 +10,7 @@ DNSのNXDOMAINをHTTPで返すことはできないため、HTTPまで到達し�
 | 正しいアプリ内の存在しないAPI・パス | アプリ自身の404をそのまま返す |
 | `knative_public`配下の存在しないアプリ名 | ワイルドカード証明書でTLS検証が成功した後、421 |
 | Kongに経路がない未知のHost | HTTPまで到達すれば421 |
-| 既知HostでKongに該当パスがない場合（認証ホストの `/` など） | 404、`{"error":"path_not_found"}` |
+| 既知HostでKongに該当パスがない場合（認証ホストの `/` など） | 404、Problem Detailsの `code: path_not_found` |
 | DNSに存在しない名前 | 名前解決に失敗。HTTP応答なし |
 | DNSが解決しても証明書の対象外の名前 | TLS検証で失敗。HTTP応答なし |
 | 有効なTLS接続に未知のHostを指定 | 421 |
@@ -28,14 +28,17 @@ DNSが解決する場合も、ブラウザは証明書エラーで停止する�
 ## 実装
 
 - KongにHost条件なしの最後のIngressを置く。既存のHost付きIngressを優先し、未一致要求だけをエラー用Serviceへ送る。
-- Kourierには、管理対象の各Knative経路ドメインのワイルドカードを受けるKnative内部Ingressを置く。
-  実在するKnativeアプリの完全一致Hostを優先するため、アプリ自身の404を変更しない。
-- エラー用Service `test/route-errors` は通常のDeploymentで常時1 Podを維持する。
-  8080番はKourierの未一致Host用、8081番はKongの未一致要求用。
-  8081番では生成済みの公開Host一覧から、既知Hostのパス不在404と未知Host421を区別する。
-- SSOの有効・無効にかかわらず動作する。エラー処理ではCookieやリクエスト本文を検査・転送・記録しない。
-- Knativeのネットワークprobeには受け取ったIngress hashを200で返す。
-  新規アプリの経路がまだ反映されていない場合はfallback側のhashになるため、アプリのprobeは再試行する。
+- Kongのfallback用pre-functionが生成済みの既知Host一覧を見て、`X-Infra-Error: path_not_found` または `unknown_host` を上書きする。
+- Kourierには、管理対象の各Knative経路ドメインのワイルドカードを受ける内部Ingressを置く。
+  実在するKnativeアプリの完全一致Hostを優先し、未一致時だけ `X-Infra-Error: unknown_host` を上書きして転送する。
+- 転送先は `error_service` の通常のKubernetes Service・単一ポート。呼び出し元ごとのポートは使わない。
+- 既定はログイン画面 `test/sso` と同居するアプリ。`min-scale: 1` で常駐し、
+  `test/platform-portal` Serviceからユーザーコンテナ8080番へ直接接続する。Kourier／queue-proxyへ戻さない。
+- 通常のアプリ経路ではrequest-transformerでクライアントの `X-Infra-Error` を除去する。
+  本文の変換を設定しないため、このヘッダー処理で本文を読み込まない。
+- 以前の独立した `route-errors` Deployment・Service・ConfigMapは、所有ラベルを確認して`up`で撤去する。
+- アプリが返した404・500などは変更しない。エラー生成サービスの形式・設定・probe仕様は
+  [エラーサービスの接続プロトコル](error-service.md)を参照。
 
 Knative内部Ingressとprobeの形式は、導入版 `knative-v1.20.0` に合わせている。
 upstreamの [KourierのHost生成](https://github.com/knative-extensions/net-kourier/blob/knative-v1.20.0/pkg/generator/ingress_translator.go) と
@@ -81,7 +84,7 @@ curl --silent --show-error --dump-header - \
   実配備への反映後は `scripts/check-route-errors.py` と次のReady確認で補う。
 
 ```bash
-kubectl -n test wait deployment/route-errors --for=condition=Available --timeout=300s
+kubectl -n test wait ksvc/sso --for=condition=Ready --timeout=300s
 kubectl -n test wait ingresses.networking.internal.knative.dev/route-errors \
   --for=condition=Ready --timeout=300s
 ```

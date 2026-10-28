@@ -56,7 +56,7 @@ class SSOTests(unittest.TestCase):
     def test_render_has_auth_for_every_explicit_and_default_route(self):
         c = self.config(); infra.render(c,self.path)
         routes = (self.path/'routes.yaml').read_text()
-        self.assertEqual(routes.count('konghq.com/plugins: "sso-'),7)
+        self.assertEqual(routes.count('konghq.com/plugins: "strip-error-reason,sso-'),7)
         kong = (self.path/'kong.yaml').read_text()
         self.assertIn('bundled,session-auth',kong)
         self.assertIn('/opt/kong/plugins/session-auth',kong)
@@ -78,7 +78,7 @@ class SSOTests(unittest.TestCase):
         c=self.config();infra.render(c,self.path)
         self.c['sso']={'enabled':False};c=self.config();infra.render(c,self.path)
         self.assertEqual(json.loads((self.path/'sso.json').read_text())['items'],[])
-        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: ""'),8)
+        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: "strip-error-reason"'),7)
         self.assertNotIn('session-auth',(self.path/'kong.yaml').read_text())
         sso.preflight(c,None)
 

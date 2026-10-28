@@ -1,3 +1,26 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: strip-error-reason
+  namespace: test
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+plugin: request-transformer
+config:
+  remove:
+    headers: [X-Infra-Error]
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: routing-error-reason
+  namespace: test
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+plugin: pre-function
+config:
+  access:
+    - |
+$kong_error_reason_source
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -195,7 +218,7 @@ metadata:
   name: route-errors
   namespace: test
   annotations:
-    konghq.com/plugins: ""
+    konghq.com/plugins: "routing-error-reason"
     konghq.com/preserve-host: "true"
     konghq.com/strip-path: "false"
 spec:
@@ -207,5 +230,5 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: route-errors
-                port: {number: 81}
+                name: error-service
+                port: {number: $error_service_port}

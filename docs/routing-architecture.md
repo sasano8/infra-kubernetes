@@ -7,12 +7,14 @@
 
 ## Hostによる転送
 
+要求されたHostに対応する公開先サービスへ転送し、公開先が定義されていなければエラーサービスが421（対応する公開先サービスなし）を返す。
+
 ```mermaid
 flowchart TD
     C[クライアント] --> K{Kong：公開Hostの条件に一致するか}
     K -->|通常ServiceのHostに一致| S[通常Service → アプリ]
     K -->|KnativeのHost・ドメイン条件に一致| Q{Kourier：完全一致するアプリHostがあるか}
-    K -->|一致なし| E[エラーサービス → 421]
+    K -->|一致なし| E[エラーサービス：公開先サービスなしを421で応答]
     Q -->|あり| A[Knativeアプリ]
     Q -->|なし・wildcard fallback| E
 ```

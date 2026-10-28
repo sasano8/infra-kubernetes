@@ -15,11 +15,14 @@ metadata:
   name: routing-error-reason
   namespace: test
   labels: {infra.sasano8.dev/owner: infra-kubernetes}
-plugin: pre-function
+plugin: request-transformer
 config:
-  access:
-    - |
-$kong_error_reason_source
+  remove:
+    headers: [X-Infra-Error, K-Network-Probe, K-Network-Hash]
+  replace:
+    headers: ["X-Infra-Error:unknown_host"]
+  add:
+    headers: ["X-Infra-Error:unknown_host"]
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

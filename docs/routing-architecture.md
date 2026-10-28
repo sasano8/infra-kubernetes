@@ -3,7 +3,7 @@
 入口の判定はHostに絞る。公開されたHostなら転送先へ渡し、未公開のHostなら421を返す。
 パスが存在するかは転送先が判断する。SSOポータルも、この点では他のアプリと同じである。
 
-以下は **簡素化後の設計（未実装）**。現行との差分は末尾に記載する。
+以下は現在の実装。
 
 ## Hostによる転送
 
@@ -53,38 +53,17 @@ TLS証明書の検証はHTTPより前に行われる。証明書対象外のHost
 
 ## エラー生成サービスの配置
 
-こちらはHost判定の図ではなく、エラーを生成するプログラムがどこで動くかを示す。
+エラー生成は、ログイン画面を提供するポータルアプリに同梱している。
+Google認証を処理するoauth2-proxy本体とは別である。
+接続先などの詳細は [エラーサービスの接続プロトコル](error-service.md) を参照。
 
-```mermaid
-flowchart TD
-    K[KongのHost不一致] --> Alias[通常Service test/error-service：alias]
-    Q[KourierのHost不一致] --> Alias
-    Alias --> S[通常Service test/platform-portal:8080]
-    S --> E
-    subgraph Pod[ポータルの同一Pod・常駐]
-        E[エラー生成：application/problem+json]
-        UI[ログイン・ログアウト画面]
-    end
-```
+## 404分類の撤去
 
-既定では、エラー生成プログラムをログイン画面のポータルに同梱している。
-同じPodを利用する配置上の関係であり、エラー生成のためにSSO認証を行うわけではない。
-SSO無効時も、既定のエラー生成に必要なPodは起動する。
-Google OAuth・セッション確認を行うoauth2-proxy本体は別Deploymentである。
+Kongの生成済み既知Host一覧と、fallbackで404／421を分類するLua処理は撤去済み。
+認証ホストも `/` Prefixで受け、未公開パスは既存の認証用処理が404で拒否する。
+Kong・Kourierのfallbackは、どちらも `unknown_host` の421だけをエラーサービスへ要求する。
 
-エラー経路は通常のServiceからユーザーコンテナへ直接転送し、Kourier・Activator・queue-proxyへ戻さない。
-そのため転送が循環しない。設定で別の `error_service` を指定した場合も、通常のServiceへ直接接続する。
-
-## 現行実装との差分
-
-上の配置図は現行どおりだが、Hostだけに絞る入口判定はまだ実装していない。
-
-- 通常アプリの入口はすでに `/` Prefixだが、認証ホストの入口は現在 `/oauth2` に限定されている。
-- Kongの最後のfallbackには、生成済みの既知Host一覧から `path_not_found` の404と `unknown_host` の421を分ける処理が残っている。
-- 簡素化では認証ホストも `/` Prefixで受け、既知Host一覧とfallbackの404分類を削除する。
-- アプリ自身の404本文を上書きしない動作は、現在も維持されている。
-
-実施順序と受け入れ条件は [簡素化計画](plans/simplify-host-errors.md) を参照。
+変更内容と受け入れ条件は [簡素化の実施記録](plans/simplify-host-errors.md) を参照。
 
 ## 実装と検証の参照先
 

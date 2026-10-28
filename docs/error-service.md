@@ -44,14 +44,13 @@ Host: requested.example.com
 X-Infra-Error: unknown_host
 ```
 
-元のHost・パス・メソッドを保持する。ヘッダーの値は以下のどちらか。
+元のHost・パス・メソッドを保持する。プロキシから指定する理由は `unknown_host` だけ。
 
 | `X-Infra-Error` | HTTP応答 | 意味 |
 | --- | --- | --- |
 | `unknown_host` | 421 | 該当する公開ホストがない |
-| `path_not_found` | 404 | 公開ホストはあるが、そのパスを公開していない |
 
-Kongのfallbackは登録済みHost一覧で理由を決め、ヘッダーを上書きする。
+KongのfallbackはHost一覧を持たず、built-in request-transformerで `unknown_host` を固定設定する。
 Kourierのfallbackは `unknown_host` を上書きする。
 通常のアプリ経路は、外部クライアントが付けたこのヘッダーを削除する。
 `X-Infra-Error` は内部予約ヘッダーで、IDトークンの転送先ヘッダー名にも指定できない。

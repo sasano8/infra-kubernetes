@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
 import ssl
 import subprocess
 import sys
@@ -51,14 +52,24 @@ def main():
         generated_routes = list(yaml.safe_load_all((path / "rendered/routes.yaml").read_text()))
         reason_plugin = next(i for i in generated_routes if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "routing-error-reason")
         strip_plugin = next(i for i in generated_routes if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "strip-error-reason")
+        oauth_items = json.loads((path / "rendered/sso.json").read_text())["items"]
+        oauth_plugin = next(i for i in oauth_items if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "sso-oauth-endpoints")
+        oauth_ingress = next(i for i in oauth_items if i["kind"] == "Ingress")
+        auth_paths = [p["path"] for p in oauth_ingress["spec"]["rules"][0]["http"]["paths"]]
+        shutil.copytree(ROOT / "plugins/sso/kong/plugins/session-auth", path / "session-auth")
+        (path / "session-auth").chmod(0o755)
+        for fixture in (path / "session-auth").iterdir():
+            fixture.chmod(0o644)
         for filename, content in code["data"].items():
             (path / filename).write_text(content)
         (path / "app.py").write_text('''from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class App(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(404 if self.path == "/status/404" else 200)
+        status = int(self.path.rsplit("/", 1)[1]) if self.path.startswith("/status/") else 200
+        self.send_response(status)
+        self.send_header("Content-Type", "application/vnd.test-app+json")
         self.end_headers()
-        self.wfile.write((self.headers.get("X-Infra-Error", "absent").encode() if self.path == "/echo-error-header" else b"application response"))
+        self.wfile.write((self.headers.get("X-Infra-Error", "absent").encode() if self.path == "/echo-error-header" else b'{"application":"own response"}'))
     def log_message(self, *args): pass
 ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
 ''')
@@ -68,6 +79,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
         public_host = "sso-test-ksvc." + public_domain
         unknown_app = "does-not-exist-test-ksvc." + public_domain
         invalid_domain = "sso-test-ksvc.knative-public-typo.example.test"
+        auth_host = config["sso"]["auth_host"]
         wildcard = "*." + public_domain
         ingress = next(i for i in apps if i["apiVersion"] == "networking.internal.knative.dev/v1alpha1")
         fallback_hosts = ingress["spec"]["rules"][0]["hosts"]
@@ -108,7 +120,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
         (path / "envoy.json").write_text(json.dumps(envoy))
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
                         "-keyout", str(path / "tls.key"), "-out", str(path / "tls.crt"),
-                        "-subj", "/CN=" + wildcard, "-addext", "subjectAltName=DNS:" + wildcard],
+                        "-subj", "/CN=" + wildcard, "-addext", "subjectAltName=DNS:" + wildcard + ",DNS:" + auth_host],
                        capture_output=True, check=True)
         (path / "tls.key").chmod(0o644)  # Ephemeral fixture key, readable by the Kong container user.
         kong = {"_format_version": "3.0", "services": [
@@ -117,10 +129,12 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             {"name": "kourier", "url": "http://kourier:8080", "plugins": [{"name": "request-transformer", "config": strip_plugin["config"]}], "routes": [
                 {"name": "public", "hosts": [wildcard], "paths": ["/"], "strip_path": False, "preserve_host": True},
                 {"name": "private-existing", "hosts": [private_host], "paths": ["/"], "strip_path": False, "preserve_host": True}]},
-            {"name": "fallback", "url": "http://route-errors:8080", "plugins": [{"name": "pre-function", "config": reason_plugin["config"]}], "routes": [
+            {"name": "oauth", "url": "http://app:8080", "plugins": [{"name": "session-auth", "config": oauth_plugin["config"]}], "routes": [
+                {"name": "oauth", "hosts": [auth_host], "paths": auth_paths, "strip_path": False, "preserve_host": True}]},
+            {"name": "fallback", "url": "http://route-errors:8080", "plugins": [{"name": reason_plugin["plugin"], "config": reason_plugin["config"]}], "routes": [
                 {"name": "fallback", "paths": ["/"], "strip_path": False, "preserve_host": True}]}],
                 "certificates": [{"cert": (path / "tls.crt").read_text(), "key": (path / "tls.key").read_text(),
-                                  "snis": [{"name": wildcard}]}]}
+                                  "snis": [{"name": wildcard}, {"name": auth_host}]}]}
         (path / "kong.yaml").write_text(yaml.safe_dump(kong))
         for fixture in path.iterdir():
             if fixture.is_file():
@@ -144,7 +158,9 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
                 "-p", "127.0.0.1::8000", "-p", "127.0.0.1::8443",
                 "-e", "KONG_DATABASE=off", "-e", "KONG_DECLARATIVE_CONFIG=/fixtures/kong.yaml",
                 "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000,0.0.0.0:8443 ssl", "-e", "KONG_ADMIN_LISTEN=off",
-                "-e", "KONG_NGINX_WORKER_PROCESSES=1"))
+                "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_PLUGINS=bundled,session-auth",
+                "-e", "KONG_LUA_PACKAGE_PATH=/opt/?.lua;;",
+                "--mount", f"type=bind,src={path / 'session-auth'},dst=/opt/kong/plugins/session-auth,readonly"))
             http_port = int(docker("port", gateway, "8000/tcp").rsplit(":", 1)[1])
             tls_port = int(docker("port", gateway, "8443/tcp").rsplit(":", 1)[1])
 
@@ -181,20 +197,27 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             cases = [(standard_host, "/", 200), (public_host, "/", 200),
                      (standard_host, "/status/404", 404), (public_host, "/status/404", 404),
                      (unknown_app, "/", 421), (unknown_app, "/status/404", 421),
-                     (invalid_domain, "/", 421), (private_host, "/", 421),
-                     (config["sso"]["auth_host"], "/", 404)]
+                     (invalid_domain, "/", 421), (private_host, "/", 421)]
+            cases += [(host, "/status/" + str(status), status)
+                      for host in (standard_host, public_host) for status in (421, 422, 500)]
             for host, uri, expected in cases:
                 status, body, headers = request(host, uri)
                 assert status == expected, (host, uri, status, expected)
-                if host in (standard_host, public_host) and expected == 404:
-                    assert body == b"application response", "Application 404 body was replaced"
-                if expected == 421:
+                if host in (standard_host, public_host) and uri.startswith("/status/"):
+                    assert body == b'{"application":"own response"}', "Application error body was replaced"
+                    assert headers["Content-Type"] == "application/vnd.test-app+json", "Application Content-Type was replaced"
+                elif expected == 421:
                     problem = json.loads(body)
                     assert problem["code"] == "unknown_host" and problem["status"] == 421
                     assert problem["type"] == "about:blank"
                     assert any(k.lower() == "content-type" and v == "application/problem+json" for k, v in headers.items())
                     assert "Location" not in headers and "Set-Cookie" not in headers
             verified = ssl.create_default_context(cafile=str(path / "tls.crt"))
+            for uri in ("/", "/missing", "/oauth2/auth"):
+                status, body, _ = request(auth_host, uri, context=verified)
+                assert status == 404 and json.loads(body) == {"error": "path_not_found"}, (uri, status, body)
+            for uri in ("/oauth2/start", "/oauth2/callback", "/oauth2/sign_in", "/oauth2/sign_out"):
+                assert request(auth_host, uri, context=verified)[0] == 200, uri
             assert request(unknown_app, context=verified)[0] == 421
             try:
                 request(invalid_domain, context=verified)
@@ -213,7 +236,15 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             assert status == 200 and body == b"absent", "Client error hint reached an application"
             status, _, _ = request(invalid_domain, headers={"X-Infra-Error": "path_not_found", "K-Network-Probe": "probe", "K-Network-Hash": "a" * 64})
             assert status == 421, "Client headers changed Kong fallback classification"
-            print("Kong/Envoy routing and TLS checks: 16 passed")
+            # An unavailable renderer must not intercept responses from existing apps.
+            docker("stop", name + "-route-errors")
+            for host in (standard_host, public_host):
+                for code in (200, 404):
+                    uri = "/" if code == 200 else "/status/404"
+                    status, body, headers = request(host, uri)
+                    assert status == code and body == b'{"application":"own response"}'
+                    assert headers["Content-Type"] == "application/vnd.test-app+json"
+            print("Kong/Envoy routing and TLS checks: 32 passed")
         except Exception:
             for container in containers:
                 print(docker("logs", "--tail", "40", container), file=sys.stderr)

@@ -77,7 +77,7 @@ class SharedLoginTests(unittest.TestCase):
         self.assertEqual([rule["host"] for rule in ingress["spec"]["rules"]], [config["sso"]["auth_host"]])
         paths = ingress["spec"]["rules"][0]["http"]["paths"]
         self.assertEqual([(p["path"], p["pathType"]) for p in paths],
-                         [("/oauth2", "Prefix")])
+                         [("/", "Prefix")])
         self.assertEqual(ingress["spec"]["tls"], [{"hosts": [config["sso"]["auth_host"]],
                                                   "secretName": "knative-wildcard-tls"}])
         plugins = [item for item in items if item["kind"] == "KongPlugin"]
@@ -142,7 +142,8 @@ class SharedLoginTests(unittest.TestCase):
         after = (self.path / "routes.yaml").read_text()
         self.assertEqual([doc for doc in before.split("---") if "kind: Ingress\n" in doc],
                          [doc for doc in after.split("---") if "kind: Ingress\n" in doc])
-        self.assertIn('login.knative.example.test', after)
+        self.assertNotIn('login.knative.example.test', after)
+        self.assertIn('login.knative.example.test', (self.path / 'sso.json').read_text())
         self.assertEqual(before.count('konghq.com/request-buffering: "false"'), 2)
         self.assertEqual(before.count('konghq.com/response-buffering: "false"'), 2)
 

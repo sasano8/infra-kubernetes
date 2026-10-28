@@ -56,10 +56,10 @@ class ErrorServerTests(unittest.TestCase):
                 self.assertNotIn("Location", headers)
                 self.assertNotIn("Set-Cookie", headers)
 
-    def test_path_not_found_reason_returns_404(self):
+    def test_proxy_cannot_request_path_not_found_classification(self):
         status, body, _ = self.request("path_not_found", "APP.EXAMPLE.TEST:443", "/missing")
-        self.assertEqual(status, 404)
-        self.assertEqual(json.loads(body)["code"], "path_not_found")
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(body)["code"], "invalid_error_reason")
 
     def test_unknown_host_reason_does_not_depend_on_host_value(self):
         self.assertEqual(self.request("unknown_host", "app.example.test")[0], 421)
@@ -129,6 +129,11 @@ class ErrorManifestTests(unittest.TestCase):
                 (path / "config.json").write_text(json.dumps(raw))
                 infra.render(infra.load(path / "config.json"), path)
                 routes = (path / "routes.yaml").read_text()
+                self.assertNotIn("pre-function", routes)
+                self.assertNotIn("path_not_found", routes)
+                self.assertNotIn("local known", routes)
+                self.assertIn('headers: ["X-Infra-Error:unknown_host"]', routes)
+                self.assertIn("headers: [X-Infra-Error, K-Network-Probe, K-Network-Hash]", routes)
                 fallback = next(doc for doc in routes.split("---") if "  name: route-errors\n" in doc)
                 self.assertNotRegex(fallback, r"(?m)^\s+(?:- )?host:")
                 self.assertIn('konghq.com/plugins: "routing-error-reason"', fallback)

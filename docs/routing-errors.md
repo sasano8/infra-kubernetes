@@ -10,7 +10,7 @@ DNSのNXDOMAINをHTTPで返すことはできないため、HTTPまで到達し�
 | 正しいアプリ内の存在しないAPI・パス | アプリ自身の404をそのまま返す |
 | `knative_public`配下の存在しないアプリ名 | ワイルドカード証明書でTLS検証が成功した後、421 |
 | Kongに経路がない未知のHost | HTTPまで到達すれば421 |
-| 既知HostでKongに該当パスがない場合（認証ホストの `/` など） | 404、Problem Detailsの `code: path_not_found` |
+| 認証ホストの未公開パス（`/`、`/oauth2/auth` など） | 認証用処理が404、`{"error":"path_not_found"}`。Host不一致にはしない |
 | DNSに存在しない名前 | 名前解決に失敗。HTTP応答なし |
 | DNSが解決しても証明書の対象外の名前 | TLS検証で失敗。HTTP応答なし |
 | 有効なTLS接続に未知のHostを指定 | 421 |
@@ -28,7 +28,8 @@ DNSが解決する場合も、ブラウザは証明書エラーで停止する�
 ## 実装
 
 - KongにHost条件なしの最後のIngressを置く。既存のHost付きIngressを優先し、未一致要求だけをエラー用Serviceへ送る。
-- Kongのfallback用pre-functionが生成済みの既知Host一覧を見て、`X-Infra-Error: path_not_found` または `unknown_host` を上書きする。
+- 公開Hostの入口は認証ホストも含め `/` Prefixとする。パスの扱いは転送先のアプリ・認証用処理が決める。
+- Kongのfallbackはbuilt-in request-transformerで `X-Infra-Error: unknown_host` を固定設定し、クライアントのエラー理由・probeヘッダーを除去する。既知Host一覧や404分類は持たない。
 - Kourierには、管理対象の各Knative経路ドメインのワイルドカードを受ける内部Ingressを置く。
   実在するKnativeアプリの完全一致Hostを優先し、未一致時だけ `X-Infra-Error: unknown_host` を上書きして転送する。
 - 転送先は `error_service` の通常のKubernetes Service・単一ポート。呼び出し元ごとのポートは使わない。

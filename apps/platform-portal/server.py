@@ -33,7 +33,7 @@ class Handler(BaseHTTPRequestHandler):
             status, body, content_type = 200, b'', 'text/plain'
             extra['K-Network-Hash'] = network_hash
         elif reasons:
-            if len(reasons) != 1 or reasons[0] not in PROBLEMS:
+            if reasons != ['unknown_host']:
                 status = 400
                 data = problem(status, 'invalid_error_reason', 'A supported error reason is required.')
             else:

@@ -9,7 +9,7 @@ callbackを処理するのはoauth2-proxyで、通常アプリやKnativeアプ�
 | 担当 | 処理 |
 | --- | --- |
 | ブラウザ | HTTPリダイレクトに従ってアプリ・認証ホスト・Googleへアクセスし、Cookieを保持する |
-| Kong | 公開Hostとパスから転送先を選ぶ。アプリ要求の認証確認と、認証ホストのOAuth要求の転送を行う |
+| Kong | 公開Hostから転送先を選ぶ。アプリ要求の認証確認と、認証ホストのOAuth要求の転送を行う |
 | session-authプラグイン | アプリへの要求でCookieを検証するためoauth2-proxyへ問い合わせ、未認証のブラウザをログインへ誘導する |
 | oauth2-proxy | Googleへの認可要求、callbackの検証、認可コードとトークンの交換、SSOセッションの発行を担当する |
 | Google | ユーザーのログイン・同意を処理し、登録済みのcallbackへ認可コードを返す |
@@ -73,7 +73,7 @@ SSO有効時に生成する `test/oauth2-proxy` Ingressが、次の組み合わ�
 | 項目 | 設定 |
 | --- | --- |
 | Host | `sso.auth_host`：この例では `auth.knative.tmp.ys-method-dev.com` |
-| パス | `/oauth2` のPrefixルート |
+| パス | `/` のPrefixルート。公開可能なOAuthパスは下記プラグインが制限 |
 | 転送先 | `test/oauth2-proxy` Service、ポート4180 |
 | TLS証明書 | この例では既存の `knative-wildcard-tls` Secret |
 | Kongプラグイン | `sso-oauth-endpoints`：OAuth用の公開パスと認証ホストを検証 |
@@ -85,7 +85,7 @@ URLは `https://sso-test-ksvc.<knative_public>/`。KongがHTMLを返す特別処
 ボタンは認証ホストの `/oauth2/start` または `/oauth2/sign_out` を呼び、
 `rd` にログイン画面の絶対URLを指定して完了後に戻る。戻り先はoauth2-proxyのallowlistへ登録する。
 ページ表示だけでは認証を開始せず、セッション状態も表示しない。
-認証ホストの `/` はルートを定義しない。
+認証ホストの入口は `/` Prefixで全パスを受ける。`/` など未公開パスは認証用プラグインが404を返す。
 アプリから通常の認証を開始した場合は、従来どおり元アプリへ戻る。
 セッション確認用の `/oauth2/auth` はKongからクラスタ内部で呼び、外部OAuthルートでは拒否する。
 外部公開しないパスは404 `{"error":"path_not_found"}` を返す。

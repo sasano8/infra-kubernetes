@@ -15,7 +15,6 @@ import sys
 import tarfile
 import tempfile
 import time
-import textwrap
 import tls
 import inventory
 import sso
@@ -262,16 +261,6 @@ def render(c, output):
         values[route.removesuffix("_domain") + "_auth"] = auth_annotation(route)
     for kind in ("standard", "knative"):
         values[kind + "_default_auth"] = auth_annotation(resolve_route(c, kind))
-    known_hosts = sso.hosts(c)
-    if c["sso"]["enabled"]:
-        known_hosts += [c["sso"]["auth_host"], sso.portal_host(c)]
-    known_lua = '{' + ','.join('[' + json.dumps(host) + ']=true' for host in known_hosts) + '}'
-    values["kong_error_reason_source"] = textwrap.indent(
-        'local known = ' + known_lua + '\n'
-        'local reason = known[kong.request.get_host()] and "path_not_found" or "unknown_host"\n'
-        'kong.service.request.set_header("X-Infra-Error", reason)\n'
-        'kong.service.request.clear_header("K-Network-Probe")\n'
-        'kong.service.request.clear_header("K-Network-Hash")', '      ')
     values["error_service_port"] = c["error_service"]["port"]
     enabled = c["sso"]["enabled"]
     values["sso_env"] = ('            - {name: KONG_PLUGINS, value: "bundled,session-auth"}\n'

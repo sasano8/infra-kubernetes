@@ -5,7 +5,25 @@
 
 ```json
 {
+  "sso": {
+    "enabled": true,
+    "email_domain": "ys-method.com",
+    "auth_host": "auth.knative.backoffice.ys-method-dev.com",
+    "cookie_domain": "backoffice.ys-method-dev.com",
+    "cookie_expire_hours": 72,
+    "secret_file": ".local/secrets/google-sso.json"
+  },
+  "default_routes": {
+    "standard": "standard_domain",
+    "knative": "knative_domain"
+  },
   "routes": {
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.backoffice.ys-method-dev.com",
+      "auth": "public",
+      "buffering": true
+    },
     "standard_domain": {
       "kind": "standard",
       "domain": "standard.backoffice.ys-method-dev.com",
@@ -29,25 +47,7 @@
       "domain": "knative-nobuffer.backoffice.ys-method-dev.com",
       "auth": "sso",
       "buffering": false
-    },
-    "knative_public": {
-      "kind": "knative",
-      "domain": "knative-public.backoffice.ys-method-dev.com",
-      "auth": "public",
-      "buffering": true
     }
-  },
-  "default_routes": {
-    "standard": "standard_domain",
-    "knative": "knative_domain"
-  },
-  "sso": {
-    "enabled": true,
-    "email_domain": "ys-method.com",
-    "auth_host": "auth.knative.backoffice.ys-method-dev.com",
-    "cookie_domain": "backoffice.ys-method-dev.com",
-    "cookie_expire_hours": 72,
-    "secret_file": ".local/secrets/google-sso.json"
   }
 }
 ```

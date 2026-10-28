@@ -48,6 +48,12 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
   "id_token_header": "X-Forwarded-Id-Token"
 },
 "routes": {
+  "knative_public": {
+    "kind": "knative",
+    "domain": "knative-public.tmp.ys-method-dev.com",
+    "auth": "public",
+    "buffering": true
+  },
   "standard_domain": {
     "kind": "standard",
     "domain": "standard.tmp.ys-method-dev.com",
@@ -71,12 +77,6 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
     "domain": "knative-nobuffer.tmp.ys-method-dev.com",
     "auth": "sso",
     "buffering": false
-  },
-  "knative_public": {
-    "kind": "knative",
-    "domain": "knative-public.tmp.ys-method-dev.com",
-    "auth": "public",
-    "buffering": true
   }
 }
 ```

@@ -229,8 +229,6 @@ HTTPS・Google Workspace SSO・Argo CD・Infisical・pinnerを有効にした設
 cat > configs/environment/local.json <<'EOF'
 {
   "mode": "new-host",
-  "base_domain": "tmp.ys-method-dev.com",
-  "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
     "enabled": true,
@@ -247,17 +245,23 @@ cat > configs/environment/local.json <<'EOF'
     "secret_file": ".local/secrets/google-sso.json"
   },
   "plugins": {
-    "argocd": {
-      "enabled": true
-    },
-    "infisical": {
-      "enabled": true
-    },
-    "pinner": {
-      "enabled": true
-    }
+    "argocd": {"enabled": true},
+    "infisical": {"enabled": true},
+    "pinner": {"enabled": true}
+  },
+  "kourier_service": "kourier.kourier-system.svc.cluster.local",
+  "base_domain": "tmp.ys-method-dev.com",
+  "default_routes": {
+    "standard": "standard_domain",
+    "knative": "knative_domain"
   },
   "routes": {
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.tmp.ys-method-dev.com",
+      "auth": "public",
+      "buffering": true
+    },
     "standard_domain": {
       "kind": "standard",
       "domain": "standard.tmp.ys-method-dev.com",
@@ -281,12 +285,6 @@ cat > configs/environment/local.json <<'EOF'
       "domain": "knative-nobuffer.tmp.ys-method-dev.com",
       "auth": "sso",
       "buffering": false
-    },
-    "knative_public": {
-      "kind": "knative",
-      "domain": "knative-public.tmp.ys-method-dev.com",
-      "auth": "public",
-      "buffering": true
     }
   }
 }

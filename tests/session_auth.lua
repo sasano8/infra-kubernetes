@@ -687,7 +687,7 @@ test('plugin schema rejects reserved and malformed ID token headers', function()
   end
   assert(type(validator) == 'function', 'ID token header validator missing from plugin schema')
   for _, header in ipairs({
-    'Authorization', 'Cookie', 'Host', 'X Token', 'X_Token', 'X-Token\r\nHost',
+    'X-Infra-Error', 'x-infra-error', 'Authorization', 'Cookie', 'Host', 'X Token', 'X_Token', 'X-Token\r\nHost',
     'X-Forwarded-Host', 'x-forwarded-proto', 'X-Auth-Request-Email',
     'X-Kong-Request-Debug', 'X-Original-URI', 'X-Real-IP'
   }) do

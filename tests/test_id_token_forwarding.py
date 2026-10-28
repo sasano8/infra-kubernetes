@@ -90,7 +90,7 @@ class IDTokenForwardingTests(unittest.TestCase):
             self.config()
 
     def test_invalid_and_reserved_header_names_are_rejected(self):
-        for header in (None, False, "", "Authorization", "Cookie", "Host", "X Token", "X_Token",
+        for header in (None, False, "", "Authorization", "Cookie", "Host", "X-Infra-Error", "x-infra-error", "X Token", "X_Token",
                        "X-Token\r\nHost", "X-トークン", "X-Forwarded-Host", "x-forwarded-proto",
                        "X-Auth-Request-Email", "X-Kong-Request-Debug", "X-Original-URI", "X-Real-IP"):
             with self.subTest(header=header):

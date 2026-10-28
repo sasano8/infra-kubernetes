@@ -203,7 +203,7 @@ SSO有効時は非対象ルート、publicルート、OAuth入口でも除去し
 
 ヘッダー名は既定の `X-Forwarded-Id-Token` または `X-SSO-ID-Token` 等の専用名を使う。
 `X-`で始まる英数字・ハイフンを許可し、既定名を除く `X-Forwarded-*`、`X-Auth-Request-*`、
-`X-Kong-*`、`X-Original-*`、`X-Real-IP` は予約済みとして拒否する。
+`X-Kong-*`、`X-Original-*`、`X-Real-IP`、`X-Infra-Error` は予約済みとして拒否する。
 
 [app-authorization-demo](https://github.com/sasano8/app-authorization-demo) 側は次を設定する。
 

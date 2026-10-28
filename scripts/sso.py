@@ -113,7 +113,7 @@ def valid_id_token_header(header):
         return False
     name = header.lower()
     return name == ID_TOKEN_HEADER.lower() or (
-        name != "x-real-ip" and not name.startswith(("x-forwarded-", "x-auth-request-", "x-kong-", "x-original-")))
+        name not in ("x-real-ip", "x-infra-error") and not name.startswith(("x-forwarded-", "x-auth-request-", "x-kong-", "x-original-")))
 
 
 def normalize(c):

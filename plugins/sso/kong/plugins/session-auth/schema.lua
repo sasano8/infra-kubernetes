@@ -10,7 +10,7 @@ local function valid_id_token_header(header)
       return false, "routing and identity header names are reserved"
     end
   end
-  if name == "x-real-ip" then return false, "routing header name is reserved" end
+  if name == "x-real-ip" or name == "x-infra-error" then return false, "routing header name is reserved" end
   return true
 end
 

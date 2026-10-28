@@ -1,11 +1,13 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.4.1" }
+local Handler = { PRIORITY = 1500, VERSION = "1.4.2" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
                    "X-Forwarded-Groups", "X-Forwarded-Access-Token", "X-Auth-Request-Access-Token" }
 local function deny(status)
-  return kong.response.exit(status, { message = status == 401 and "Authentication required" or "Access denied" },
+  local body = status == 404 and { error = "path_not_found" }
+               or { message = status == 401 and "Authentication required" or "Access denied" }
+  return kong.response.exit(status, body,
                             { ["Cache-Control"] = "no-store" })
 end
 function Handler:access(conf)

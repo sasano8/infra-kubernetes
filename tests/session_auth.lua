@@ -289,6 +289,7 @@ test('foreign email domain refused', function()
   handler:access(conf)
 
   assert(result.status == 403)
+  assert(result.body.message == 'Access denied' and result.body.error == nil)
 end)
 
 test('auth forbidden stays forbidden', function()
@@ -379,6 +380,7 @@ test('oauth root is not a special public landing page', function()
   request.path = '/'
   handler:access(conf)
   assert(result.status == 404 and calls == 0)
+  assert(result.body.error == 'path_not_found' and result.body.message == nil)
 end)
 
 test('public route accepts one wildcard label and strips session cookies', function()
@@ -408,6 +410,7 @@ test('oauth internal authentication endpoint remains private', function()
   handler:access(conf)
 
   assert(result.status == 404)
+  assert(result.body.error == 'path_not_found' and result.body.message == nil)
 end)
 
 test('oauth callback uses the effective HTTPS authority on port 443', function()

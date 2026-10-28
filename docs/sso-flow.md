@@ -88,6 +88,8 @@ URLは `https://sso-test-ksvc.<knative_public>/`。KongがHTMLを返す特別処
 認証ホストの `/` はルートを定義しない。
 アプリから通常の認証を開始した場合は、従来どおり元アプリへ戻る。
 セッション確認用の `/oauth2/auth` はKongからクラスタ内部で呼び、外部OAuthルートでは拒否する。
+外部公開しないパスは404 `{"error":"path_not_found"}` を返す。
+認証プラグインの403応答は `{"message":"Access denied"}` とする。
 認証専用ホストにはKnative Serviceを作らず、Kourierも経由しない。
 
 Hostもルート選択の条件になるため、任意のアプリホストの `/oauth2/callback` を

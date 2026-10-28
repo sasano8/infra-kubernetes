@@ -723,6 +723,7 @@ KIC_CLUSTER_RESOURCES = (
     ("ingressclass", "kong-ingress"),
     ("clusterrolebinding", "kong-ingress"),
     ("clusterrole", "kong-ingress"),
+    ("clusterrole", "kong-ingress-secrets"),
 )
 
 
@@ -768,7 +769,9 @@ def install_kic_prerequisites(cluster, output):
     target.write_text(crds)
     cluster.call("apply", "--server-side", "--field-manager=kong-crds", "-f", target)
     cluster.call("wait", "crd", *crd_names, "--for=condition=Established", "--timeout=120s")
-    for name in ("rbac.yaml", "controller.yaml"):
+    # Establish namespace-scoped Secret grants first, then revoke the previous
+    # cluster-wide grant in rbac.yaml. Reruns use the same owned RBAC identities.
+    for name in ("controller.yaml", "rbac.yaml"):
         cluster.call("apply", "-f", ROOT / "plugins/kong/manifests" / name)
 
 

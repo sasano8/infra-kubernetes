@@ -35,7 +35,8 @@ DNSが解決する場合も、ブラウザは証明書エラーで停止する�
 - 転送先は `error_service` の通常のKubernetes Service・単一ポート。呼び出し元ごとのポートは使わない。
 - 既定はログイン画面 `test/sso` と同居するアプリ。`min-scale: 1` で常駐し、
   `test/platform-portal` Serviceからユーザーコンテナ8080番へ直接接続する。Kourier／queue-proxyへ戻さない。
-- 通常のアプリ経路ではrequest-transformerでクライアントの `X-Infra-Error` を除去する。
+- 通常のアプリ経路・認証ホストでもrequest-transformerでクライアントの `X-Infra-Error` とKnative内部専用ヘッダーを除去する。
+  `K-Original-Host` によるHost認識の変更や外部probeの偽装を防ぎ、内部コントローラーの通信は維持する。
   本文の変換を設定しないため、このヘッダー処理で本文を読み込まない。
 - 以前の独立した `route-errors` Deployment・Service・ConfigMapは、所有ラベルを確認して`up`で撤去する。
 - アプリが返した404・500などは変更しない。エラー生成サービスの形式・設定・probe仕様は

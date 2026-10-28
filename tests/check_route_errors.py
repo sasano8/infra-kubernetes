@@ -62,14 +62,16 @@ def main():
             fixture.chmod(0o644)
         for filename, content in code["data"].items():
             (path / filename).write_text(content)
-        (path / "app.py").write_text('''from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        (path / "app.py").write_text('''import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class App(BaseHTTPRequestHandler):
     def do_GET(self):
         status = int(self.path.rsplit("/", 1)[1]) if self.path.startswith("/status/") else 200
         self.send_response(status)
         self.send_header("Content-Type", "application/vnd.test-app+json")
         self.end_headers()
-        self.wfile.write((self.headers.get("X-Infra-Error", "absent").encode() if self.path == "/echo-error-header" else b'{"application":"own response"}'))
+        self.wfile.write(json.dumps(dict(self.headers)).encode() if self.path in ("/echo-headers", "/oauth2/callback") else
+                        self.headers.get("X-Infra-Error", "absent").encode() if self.path == "/echo-error-header" else b'{"application":"own response"}')
     def log_message(self, *args): pass
 ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
 ''')
@@ -77,6 +79,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
         standard_host = "hello-test-ssvc." + config["routes"]["standard_domain"]["domain"]
         private_host = "hello-test-ksvc." + config["routes"]["knative_domain"]["domain"]
         public_host = "sso-test-ksvc." + public_domain
+        public_sso_host = "audit-test-ksvc." + public_domain
         unknown_app = "does-not-exist-test-ksvc." + public_domain
         invalid_domain = "sso-test-ksvc.knative-public-typo.example.test"
         auth_host = config["sso"]["auth_host"]
@@ -113,7 +116,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
                 "name": "envoy.filters.network.http_connection_manager", "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                     "stat_prefix": "test", "route_config": {"name": "external", "virtual_hosts": [
-                        virtual_host(public_host, "app"), virtual_host(wildcard, "fallback")]},
+                        virtual_host(public_host, "app"), virtual_host(public_sso_host, "app"), virtual_host(wildcard, "fallback")]},
                     "http_filters": [{"name": "envoy.filters.http.router", "typed_config": {
                         "@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}],
                                       "clusters": clusters}}
@@ -129,7 +132,13 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             {"name": "kourier", "url": "http://kourier:8080", "plugins": [{"name": "request-transformer", "config": strip_plugin["config"]}], "routes": [
                 {"name": "public", "hosts": [wildcard], "paths": ["/"], "strip_path": False, "preserve_host": True},
                 {"name": "private-existing", "hosts": [private_host], "paths": ["/"], "strip_path": False, "preserve_host": True}]},
-            {"name": "oauth", "url": "http://app:8080", "plugins": [{"name": "session-auth", "config": oauth_plugin["config"]}], "routes": [
+            {"name": "public-sso", "url": "http://kourier:8080", "plugins": [
+                {"name": "request-transformer", "config": strip_plugin["config"]},
+                {"name": "session-auth", "config": next(i for i in oauth_items if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "sso-knative-public")["config"]}], "routes": [
+                {"name": "public-sso", "hosts": [public_sso_host], "paths": ["/"], "strip_path": False, "preserve_host": True}]},
+            {"name": "oauth", "url": "http://app:8080", "plugins": [
+                {"name": "request-transformer", "config": strip_plugin["config"]},
+                {"name": "session-auth", "config": oauth_plugin["config"]}], "routes": [
                 {"name": "oauth", "hosts": [auth_host], "paths": auth_paths, "strip_path": False, "preserve_host": True}]},
             {"name": "fallback", "url": "http://route-errors:8080", "plugins": [{"name": reason_plugin["plugin"], "config": reason_plugin["config"]}], "routes": [
                 {"name": "fallback", "paths": ["/"], "strip_path": False, "preserve_host": True}]}],
@@ -229,9 +238,32 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
             diagnostic = ssl._create_unverified_context()
             assert request(invalid_domain, context=diagnostic)[0] == 421
             assert request(invalid_domain, context=verified, sni=public_host)[0] == 421
-            status, _, headers = request(unknown_app, headers={"K-Network-Probe": "probe", "K-Network-Hash": "override"})
-            returned_hash = next((value for key, value in headers.items() if key.lower() == "k-network-hash"), None)
-            assert (status, returned_hash) == (200, fallback_hash), (status, returned_hash)
+            # External requests must not select Knative's internal probe routes.
+            spoofed = {"K-Original-Host": "attacker.invalid", "K-Proxy-Request": "activator",
+                       "K-Network-Probe": "probe", "K-Network-Hash": "override",
+                       "K-Kubelet-Probe": "queue", "Knative-Serving-Revision": "private-revision",
+                       "Knative-Serving-Namespace": "private-namespace", "X-Infra-Error": "unknown_host"}
+            for host in (unknown_app, invalid_domain):
+                status, _, headers = request(host, headers=spoofed)
+                assert status == 421 and not any(k.lower() == "k-network-hash" for k in headers), headers
+            # SSO off/on public routes, standard apps, and OAuth all share the boundary.
+            for host, uri, tls in ((standard_host, "/echo-headers", None), (public_host, "/echo-headers", None),
+                                   (public_sso_host, "/echo-headers", verified), (auth_host, "/oauth2/callback", verified)):
+                status, body, _ = request(host, uri, context=tls, headers=spoofed)
+                echoed = {k.lower(): v for k, v in json.loads(body).items()}
+                assert status == 200 and echoed.get("host") == host, (host, status, echoed)
+                assert not set(k.lower() for k in spoofed).intersection(echoed), echoed
+            # Real controller probes go directly to Kourier, bypassing external Kong.
+            # The returned fallback hash must not impersonate a new app's hash.
+            probe = """import http.client,json
+c=http.client.HTTPConnection('kourier',8080,timeout=5)
+c.request('GET','/',headers={'Host':%r,'K-Network-Probe':'probe','K-Network-Hash':'override'})
+r=c.getresponse()
+print(json.dumps([r.status,r.getheader('K-Network-Hash')]))
+r.read();c.close()
+""" % unknown_app
+            internal = json.loads(docker("exec", name + "-app", "python3", "-c", probe))
+            assert internal == [200, fallback_hash], internal
             status, body, _ = request(public_host, "/echo-error-header", headers={"X-Infra-Error": "unknown_host"})
             assert status == 200 and body == b"absent", "Client error hint reached an application"
             status, _, _ = request(invalid_domain, headers={"X-Infra-Error": "path_not_found", "K-Network-Probe": "probe", "K-Network-Hash": "a" * 64})
@@ -244,7 +276,7 @@ ThreadingHTTPServer(("0.0.0.0", 8080), App).serve_forever()
                     status, body, headers = request(host, uri)
                     assert status == code and body == b'{"application":"own response"}'
                     assert headers["Content-Type"] == "application/vnd.test-app+json"
-            print("Kong/Envoy routing and TLS checks: 32 passed")
+            print("Kong/Envoy routing and TLS checks: 38 passed")
         except Exception:
             for container in containers:
                 print(docker("logs", "--tail", "40", container), file=sys.stderr)

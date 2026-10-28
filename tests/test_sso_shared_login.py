@@ -74,6 +74,8 @@ class SharedLoginTests(unittest.TestCase):
         config = self.load()
         items = self.resources(config)
         ingress = next(item for item in items if item["kind"] == "Ingress")
+        self.assertEqual(ingress["metadata"]["annotations"]["konghq.com/plugins"],
+                         "strip-error-reason,sso-oauth-endpoints")
         self.assertEqual([rule["host"] for rule in ingress["spec"]["rules"]], [config["sso"]["auth_host"]])
         paths = ingress["spec"]["rules"][0]["http"]["paths"]
         self.assertEqual([(p["path"], p["pathType"]) for p in paths],

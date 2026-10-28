@@ -12,7 +12,6 @@ rules:
   resources:
   - configmaps
   - nodes
-  - secrets
   verbs:
   - list
   - watch
@@ -126,3 +125,16 @@ rules:
   - get
   - patch
   - update
+---
+# CONTROLLER_WATCH_NAMESPACE controls watches, not authorization.
+# Never bind this Secret role with a ClusterRoleBinding: RoleBindings below
+# grant list/watch (which include Secret data) only in the two watched namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kong-ingress-secrets
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [list, watch]

@@ -26,7 +26,22 @@ Ingress とバックエンドを同じ Namespace に置き、既存 Kourier の 
 
 専用 IngressClass は `kong-ingress`。デフォルトの IngressClass には設定しない。
 KIC の監視対象 Namespace は `test` と `kong-system` に限定する。
-RBAC は公式 KIC v3.4.3 の権限定義を基にしており、ClusterRole を含む。
+RBAC は公式 KIC v3.4.3 の権限定義を基にするが、Secret権限は分離する。
+`kong-ingress-secrets` ClusterRoleを `test` と `kong-system` のRoleBindingから参照し、
+Secretのlist/watchをこの2 Namespaceだけに許可する。ClusterRoleBindingには接続しない。
+監視Namespaceの設定だけでは権限が狭まらないため、API側の認可でも制限する。
+Secret以外の上流由来の権限は維持する。
+
+`make up` のKIC前提設定の適用で、Namespace内の許可を作成してから旧ClusterRoleの全Namespace Secret権限を外す。
+別管理のRoleBinding等で追加権限を与えている場合、その権限までは自動削除しない。
+リポジトリ定義の検査は `python3 tests/check_kic_rbac.py`（PyYAMLが必要）で実行し、CIにも含める。
+実クラスタでは管理者が次を実行し、2 Namespaceだけyes、全Namespaceではnoとなることを確認する。
+
+```bash
+kubectl auth can-i list secrets -n test --as=system:serviceaccount:kong-system:kong-ingress
+kubectl auth can-i list secrets -n kong-system --as=system:serviceaccount:kong-system:kong-ingress
+kubectl auth can-i list secrets --all-namespaces --as=system:serviceaccount:kong-system:kong-ingress
+```
 既存の Caddy・別 IngressClass のルートは採用しない。
 Gateway API のコントローラは無効にし、Gateway API CRD は追加しない。
 

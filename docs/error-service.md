@@ -96,7 +96,9 @@ K-Network-Hash: <64文字の小文字16進hash>
 
 Kourierは `override` を実際のIngress hashへ上書きしてから送る。
 新規アプリの経路が反映される前はfallbackのhashになるため、アプリ側のprobeが成功したと誤認しない。
-Kongのfallbackは外部からのprobeヘッダーを削除する。
+外部入口のKongは、すべての公開経路でprobe・元Host・revisionなどKnative内部専用ヘッダーを削除する。
+外部要求を内部probeと誤認せず、未公開アプリには421を返すため。
+Knativeコントローラーの正規probeは外部Kongを経由せずKourierへ届くので、200とhash応答を維持する。
 
 ## 組み込みアプリと移行
 

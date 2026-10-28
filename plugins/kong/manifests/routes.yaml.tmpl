@@ -5,9 +5,13 @@ metadata:
   namespace: test
   labels: {infra.sasano8.dev/owner: infra-kubernetes}
 plugin: request-transformer
+# This is the external trust boundary, including when SSO is disabled.
+# queue-proxy restores Host from K-Original-Host; clients must never supply it.
+# Only Knative's internal hops may generate probe, proxy and revision headers.
+# Header-only transforms do not read/buffer an upload body.
 config:
   remove:
-    headers: [X-Infra-Error]
+    headers: [X-Infra-Error, K-Original-Host, K-Proxy-Request, K-Network-Probe, K-Network-Hash, K-Kubelet-Probe, Knative-Serving-Revision, Knative-Serving-Namespace]
 ---
 apiVersion: configuration.konghq.com/v1
 kind: KongPlugin
@@ -18,7 +22,7 @@ metadata:
 plugin: request-transformer
 config:
   remove:
-    headers: [X-Infra-Error, K-Network-Probe, K-Network-Hash]
+    headers: [X-Infra-Error, K-Original-Host, K-Proxy-Request, K-Network-Probe, K-Network-Hash, K-Kubelet-Probe, Knative-Serving-Revision, Knative-Serving-Namespace]
   replace:
     headers: ["X-Infra-Error:unknown_host"]
   add:

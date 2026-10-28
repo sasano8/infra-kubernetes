@@ -133,7 +133,7 @@ class ErrorManifestTests(unittest.TestCase):
                 self.assertNotIn("path_not_found", routes)
                 self.assertNotIn("local known", routes)
                 self.assertIn('headers: ["X-Infra-Error:unknown_host"]', routes)
-                self.assertIn("headers: [X-Infra-Error, K-Network-Probe, K-Network-Hash]", routes)
+                self.assertIn("K-Original-Host, K-Proxy-Request, K-Network-Probe, K-Network-Hash", routes)
                 fallback = next(doc for doc in routes.split("---") if "  name: route-errors\n" in doc)
                 self.assertNotRegex(fallback, r"(?m)^\s+(?:- )?host:")
                 self.assertIn('konghq.com/plugins: "routing-error-reason"', fallback)

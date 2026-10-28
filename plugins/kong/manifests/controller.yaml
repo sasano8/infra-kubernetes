@@ -52,3 +52,33 @@ metadata:
   labels: {infra.sasano8.dev/owner: infra-kubernetes}
 spec:
   controller: ingress-controllers.konghq.com/kong
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kong-ingress-secrets
+  namespace: test
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kong-ingress-secrets
+subjects:
+  - kind: ServiceAccount
+    name: kong-ingress
+    namespace: kong-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kong-ingress-secrets
+  namespace: kong-system
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kong-ingress-secrets
+subjects:
+  - kind: ServiceAccount
+    name: kong-ingress
+    namespace: kong-system

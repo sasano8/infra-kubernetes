@@ -319,8 +319,9 @@ def render(c, output, route_ids):
     ingress = resource("networking.k8s.io/v1", "Ingress", "oauth2-proxy", "test", spec={
         "ingressClassName": "kong-ingress", "rules": rules,
         "tls": [{"hosts": [s["auth_host"]], "secretName": auth_certificate(c)}]})
+    # OAuth is also an external entry: strip internal Knative hints before proxying.
     ingress["metadata"]["annotations"] = {"konghq.com/preserve-host": "true", "konghq.com/strip-path": "false",
-                                          "konghq.com/plugins": "sso-oauth-endpoints"}
+                                          "konghq.com/plugins": "strip-error-reason,sso-oauth-endpoints"}
     # Authentication is a Kong route to oauth2-proxy, not a Knative application.
     items.append(ingress)
     items.append(resource("networking.k8s.io/v1", "NetworkPolicy", "oauth2-proxy", "test", spec={

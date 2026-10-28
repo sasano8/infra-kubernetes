@@ -65,7 +65,7 @@ class KnativePublicTests(unittest.TestCase):
         self.assertNotIn("<!doctype html>", handler)
 
     def test_public_policy_and_token_forwarding_cannot_be_overridden(self):
-        self.raw["sso"]["routes"] = {"knative_public": "browser"}
+        self.raw["sso"]["routes"] = {"knative_public": "sso"}
         with self.assertRaisesRegex(ValueError, "public専用"):
             self.load()
         self.raw["sso"]["routes"] = {}

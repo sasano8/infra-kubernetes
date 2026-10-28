@@ -29,7 +29,7 @@ ngx = {
 local handler = dofile('plugins/sso/kong/plugins/session-auth/handler.lua')
 local conf = {
   hosts = {'app.example.test'},
-  mode = 'browser',
+  mode = 'sso',
   email_domain = 'example.test',
   https_port = 443,
   auth_host = 'auth.knative.example.test',
@@ -130,7 +130,7 @@ local function setup()
       end
     }
   }
-  conf.mode = 'browser'
+  conf.mode = 'sso'
   conf.hosts = {'app.example.test'}
   conf.auth_host = 'auth.knative.example.test'
   conf.https_port = 443
@@ -185,7 +185,7 @@ test('authenticated bodyless check and isolated cookies', function()
   assert(cleared['X-Forwarded-User'])
 end)
 
-test('browser redirect preserves URL', function()
+test('sso redirect preserves URL', function()
   response.status = 401
 
   handler:access(conf)
@@ -487,7 +487,7 @@ test('oauth callback discards spoofed forwarding headers from a trusted peer', f
   assert(headers['X-Forwarded-Proto'] == 'https' and headers['X-Forwarded-Port'] == '9443')
 end)
 
-test('browser redirect preserves the configured HTTPS port', function()
+test('sso redirect preserves the configured HTTPS port', function()
   conf.https_port = 9443
   response.status = 401
 

@@ -37,6 +37,20 @@ class SSOConfiguration(unittest.TestCase):
         self.secret.write_text(json.dumps(self.original))
         self.secret.chmod(0o600)
 
+    def test_legacy_browser_is_normalized_and_rendered_as_sso(self):
+        raw = json.loads(self.path.read_text())
+        for mode in ('browser', 'sso'):
+            with self.subTest(mode=mode):
+                raw['sso']['routes'] = {'standard_domain': mode}
+                self.path.write_text(json.dumps(raw))
+                config = infra.load(self.path)
+                self.assertEqual(config['sso']['routes']['standard_domain'], 'sso')
+                infra.render(config, self.directory)
+                items = json.loads((self.directory / 'sso.json').read_text())['items']
+                plugin = next(i for i in items if i['metadata']['name'] == 'sso-standard-domain')
+                self.assertEqual(plugin['config']['mode'], 'sso')
+                self.assertNotIn('（browser）', sso.test_plan(config, 'markdown'))
+
     def configure(self, answers, rotate=False):
         output = io.StringIO()
         with patch('getpass.getpass', side_effect=answers), redirect_stdout(output):

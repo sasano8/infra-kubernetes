@@ -94,11 +94,11 @@ class SSORegressionTests(unittest.TestCase):
         return self.config({"enabled": enabled, "email_domain": "example.test",
                             "routes": {route: mode for route in ROUTE_IDS}, "api_paths": api_paths})
 
-    def test_browser_get_plan_respects_api_path_and_exact_prefix_boundaries(self):
+    def test_sso_get_plan_respects_api_path_and_exact_prefix_boundaries(self):
         for api_paths, expected in ((["/get"], "401"), (["/ge"], "302"), (["/getter"], "302"),
                                     (["/get/item"], "302"), (["/get-suffix"], "302"),
                                     (["/GET"], "302"), ([], "302")):
-            config = self.plan_config(True, "browser", api_paths)
+            config = self.plan_config(True, "sso", api_paths)
             for output in ("shell", "markdown"):
                 with self.subTest(api_paths=api_paths, output=output):
                     plan = sso.test_plan(config, output)
@@ -110,7 +110,7 @@ class SSORegressionTests(unittest.TestCase):
 
     def test_plan_policy_and_global_enable_matrix(self):
         for enabled in (False, True):
-            for mode in ("browser", "api", "public"):
+            for mode in ("sso", "api", "public"):
                 for api_paths in ([], ["/get"], ["/ge"]):
                     expected = ("200" if not enabled or mode == "public" else
                                 "401" if mode == "api" or "/get" in api_paths else "302")
@@ -122,7 +122,7 @@ class SSORegressionTests(unittest.TestCase):
                             count = 6 + int(output == "markdown" and enabled and expected == "200")
                             self.assertEqual(plan.count(marker), count)
 
-    def test_generated_browser_api_shell_accepts_401_and_rejects_302(self):
+    def test_generated_sso_api_shell_accepts_401_and_rejects_302(self):
         fake_bin = self.path / "bin"
         fake_bin.mkdir()
         curl = fake_bin / "curl"
@@ -141,7 +141,7 @@ fi
 printf '%s' "$status"
 ''')
         curl.chmod(0o755)
-        config = self.plan_config(True, "browser", ["/get"])
+        config = self.plan_config(True, "sso", ["/get"])
         plan = sso.test_plan(config, "shell")
         subprocess.run(["bash", "-n"], input=plan, text=True, check=True)
         for status, success in (("401", True), ("302", False)):

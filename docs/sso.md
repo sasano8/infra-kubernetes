@@ -41,10 +41,10 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
   "cookie_expire_hours": 72,
   "secret_file": ".local/secrets/google-sso.json",
   "routes": {
-    "standard_domain": "browser",
-    "standard_nobuffer_domain": "browser",
-    "knative_domain": "browser",
-    "knative_nobuffer_domain": "browser",
+    "standard_domain": "sso",
+    "standard_nobuffer_domain": "sso",
+    "knative_domain": "sso",
+    "knative_nobuffer_domain": "sso",
     "knative_public": "public"
   },
   "api_paths": ["/api", "/upload"],
@@ -58,9 +58,10 @@ Cookie共有親ドメインを設定できる。
 有効時はHTTPSが必須で、TLS設定も入力する。`email_domain`は従来の
 `SSO_EMAIL_DOMAIN`に対応する非機密設定。
 
-- `enabled=true`：ルートIDごとの認証を適用する。routes省略時は全4ルートがbrowser。
-- `browser`：未認証GET／HEADはログインへ302。api_pathsのパスと配下、その他のHTTPメソッド、
+- `enabled=true`：ルートIDごとの認証を適用する。routes省略時は全4ルートがsso。
+- `sso`：未認証GET／HEADはログインへ302。api_pathsのパスと配下、その他のHTTPメソッド、
   Upgrade要求は401。APIのGETをリダイレクトさせたくない場合はパスまたはapiルートを指定する。
+- 旧名 `browser` は互換用に受け付け、読み込み時に `sso` へ変換する。既存設定はそのまま再適用できる。
 - `api`：未認証は常に401。これはブラウザCookieを検証するAPI用応答であり、Bearer認証ではない。
 - `public`：明示したルートを認証なしで公開する。認証済みを示す外部ヘッダーは除去する。
   同じアプリを別のpublicルートでも公開すれば、そのアプリはそこから利用できる。公開先の設計を確認する。
@@ -156,7 +157,7 @@ Google IDトークンをアプリ自身で検証する場合は、転送する�
 "id_token_header": "X-Forwarded-Id-Token"
 ```
 
-指定できるのは通常／Knativeの4つの公開ルートID。browser／apiルートが対象で、
+指定できるのは通常／Knativeの4つの公開ルートID。sso／apiルートが対象で、
 publicルートの指定は設定エラーにする。既定ルートを使うアプリにも選択先の設定を適用する。
 転送の単位は公開ルートであり、そのルートの対象アプリすべてへ渡す。
 認証、buffering、APIの未認証応答の設定は維持する。

@@ -111,8 +111,11 @@ def normalize(c, routes):
         raise ValueError("sso.enabled は true / false")
     if type(s["cookie_expire_hours"]) is not int or not 2 <= s["cookie_expire_hours"] <= 8760:
         raise ValueError("sso.cookie_expire_hours は2〜8760時間の整数です（更新間隔は1時間）")
-    if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("browser", "api", "public") for k, v in s["routes"].items()):
-        raise ValueError("sso.routes はルートIDと browser / api / public の対応を指定してください")
+    if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("sso", "browser", "api", "public") for k, v in s["routes"].items()):
+        raise ValueError("sso.routes はルートIDと sso / api / public の対応を指定してください")
+    # Preserve existing environment files while emitting only the clearer name.
+    s["routes"] = {route: "sso" if mode == "browser" else mode
+                   for route, mode in s["routes"].items()}
     if s["routes"].get("knative_public", "public") != "public":
         raise ValueError("knative_public はpublic専用経路です")
     if not valid_id_token_header(s["id_token_header"]):
@@ -124,7 +127,7 @@ def normalize(c, routes):
         raise ValueError("sso.id_token_routes は重複のない公開ルートIDの配列を指定してください")
     if "knative_public" in token_routes:
         raise ValueError("sso.id_token_routes: public経路にはIDトークンを転送できません")
-    if any(s["routes"].get(route, "browser") == "public" for route in token_routes):
+    if any(s["routes"].get(route, "sso") == "public" for route in token_routes):
         raise ValueError("sso.id_token_routes にpublicルートは指定できません")
     if not isinstance(s["secret_file"], str):
         raise ValueError("sso.secret_file はファイルパスです")
@@ -273,7 +276,7 @@ def render(c, output, route_ids):
     annotations = {}
     for route in route_ids:
         name = "sso-" + route.replace("_", "-")
-        items.append(plugin(name, "public" if route == "knative_public" else s["routes"].get(route, "browser"),
+        items.append(plugin(name, "public" if route == "knative_public" else s["routes"].get(route, "sso"),
                             ["*." + c[route]] if route == "knative_public" else all_hosts,
                             route in s["id_token_routes"]))
         annotations[route] = '    konghq.com/plugins: "' + name + '"'
@@ -405,7 +408,7 @@ def test_plan(c, format):
                "headers=$(mktemp)", "trap " + shlex.quote('rm -f "$headers"') + " EXIT"]
              if format == "shell" else ["# 外部確認プラン", "", "別ネットワークで実施。未認証・認証済み・内部診断を別々に記録する。", ""])
     for host, route in zip(hosts(c), ids):
-        mode = (c["sso"]["routes"].get(route, "browser")
+        mode = (c["sso"]["routes"].get(route, "sso")
                 if c["sso"]["enabled"] and route != "knative_public" else "public")
         path = "/get"
         api_request = mode == "api" or any(path == prefix or path.startswith(prefix + "/") for prefix in c["sso"]["api_paths"])

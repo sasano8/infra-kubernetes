@@ -1,5 +1,5 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.4.0" }
+local Handler = { PRIORITY = 1500, VERSION = "1.4.1" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",

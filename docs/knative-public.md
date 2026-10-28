@@ -56,7 +56,7 @@ spec:
 ```
 
 公開URLは `https://example-test-ksvc.knative-public.backoffice.ys-method-dev.com/`。
-アプリごとのKong設定は不要。`sso.routes`でbrowser／apiへ変更したり、IDトークン転送を有効にしたりはできない。
+アプリごとのKong設定は不要。`sso.routes`でsso／apiへ変更したり、IDトークン転送を有効にしたりはできない。
 SSO有効時も未認証でアプリへ到達する。Kongは共有SSO Cookieと外部からのidentityヘッダーをアプリへ渡さない。
 
 ## ログイン・ログアウト画面

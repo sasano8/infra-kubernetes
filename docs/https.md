@@ -101,10 +101,10 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
     "cookie_expire_hours": 72,
     "secret_file": ".local/secrets/google-sso.json",
     "routes": {
-      "standard_domain": "browser",
-      "standard_nobuffer_domain": "browser",
-      "knative_domain": "browser",
-      "knative_nobuffer_domain": "browser"
+      "standard_domain": "sso",
+      "standard_nobuffer_domain": "sso",
+      "knative_domain": "sso",
+      "knative_nobuffer_domain": "sso"
     }
   }
 }

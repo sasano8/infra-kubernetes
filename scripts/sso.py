@@ -436,6 +436,16 @@ def test_plan(c, format):
         lines += ["# 手動確認: Googleログイン→callback→元URL、期限切れ、ログアウト、許可外403、認証停止503。",
                   "# 認証済みで/get・32MiB upload/download・dripを比較。Cookieやトークンをログに出さない。",
                   "# Knativeはアクセスを止め、内部でPod 0件を確認してから認証済みブラウザで再アクセスする。"]
+    if format == "markdown":
+        lines += ["", "## 未公開ホストと404の区別", "",
+                  "- knative_public配下の存在しないアプリ名：HTTP 421（証明書検証は有効）。",
+                  "- 既存アプリ内の存在しないパス：HTTP 404（アプリの応答を維持）。",
+                  "- 経路ドメインの誤字：DNSまたはTLS段階で失敗。HTTP応答より前のエラー。",
+                  "- 有効なTLS接続に未知のHostを指定：HTTP 421。ログインや別URLへ転送しない。",
+                  "", "実配備の確認：`python3 scripts/check-route-errors.py`（別設定は `--config <path>` を指定）。", ""]
+    else:
+        lines += ["# 未公開Hostは421、既存アプリの存在しないパスは404。証明書対象外はTLS段階で失敗。",
+                  "# 外部端末で追加確認: python3 scripts/check-route-errors.py --config configs/environment/local.json"]
     lines += ["# DNSとヘアピンNATは別ネットワークで切り分ける。--resolveはDNS診断のみ、TLS検証は無効にしない。",
               "# 記録: コミット / 日時 / 実行場所 / 内部結果 / 外部未認証結果 / 外部認証済み結果 / 未実施項目。"]
     return "\n".join(lines)

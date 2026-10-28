@@ -49,7 +49,9 @@ class KnativePublicTests(unittest.TestCase):
         config = self.load()
         infra.render(config, self.directory)
         documents = (self.directory / "apps.yaml").read_text().split("\n---\n")
-        page, service = map(json.loads, documents[-2:])
+        json_documents = [json.loads(doc) for doc in documents if doc.lstrip().startswith("{")]
+        page = next(i for i in json_documents if i["kind"] == "ConfigMap")
+        service = next(i for i in json_documents if i["kind"] == "Service")
         self.assertEqual(service["apiVersion"], "serving.knative.dev/v1")
         self.assertEqual(service["metadata"]["labels"]["infra.sasano8.dev/route"], "knative_public")
         self.assertIn(sso.origin(config) + "/oauth2/start", page["data"]["index.html"])

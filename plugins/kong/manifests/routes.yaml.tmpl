@@ -188,3 +188,24 @@ $knative_public_tls
               service:
                 name: kourier-proxy
                 port: {number: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route-errors
+  namespace: test
+  annotations:
+    konghq.com/plugins: ""
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+spec:
+  ingressClassName: kong-ingress
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: route-errors
+                port: {number: 81}

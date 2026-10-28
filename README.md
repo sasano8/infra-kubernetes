@@ -362,6 +362,14 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 ## 動作確認
 
+未公開ホストは421、既存アプリ内の存在しないパスは404として区別する。
+証明書対象外のホストはTLS段階で失敗するため、HTTP応答は返らない。
+実配備での確認は [ルーティングエラーの動作とテスト](docs/routing-errors.md)を参照。
+
+```bash
+python3 scripts/check-route-errors.py
+```
+
 ### Kong ホスト上：内部経路・スケールゼロ復帰
 
 SSO有効時は内部診断を種別ごとに実行する。外部DNS・HTTPS・Kongの認証確認は含まない。

@@ -78,7 +78,7 @@ class SSOTests(unittest.TestCase):
         c=self.config();infra.render(c,self.path)
         self.c['sso']={'enabled':False};c=self.config();infra.render(c,self.path)
         self.assertEqual(json.loads((self.path/'sso.json').read_text())['items'],[])
-        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: ""'),7)
+        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: ""'),8)
         self.assertNotIn('session-auth',(self.path/'kong.yaml').read_text())
         sso.preflight(c,None)
 

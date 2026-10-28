@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import textwrap
 import tls
 import inventory
 import sso
@@ -256,6 +257,18 @@ def render(c, output):
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
     sso.render_portal(c, output)
+    error_source = (ROOT / "apps/route-errors/server.py").read_text()
+    known_hosts = sso.hosts(c)
+    if c["sso"]["enabled"]:
+        known_hosts += [c["sso"]["auth_host"], sso.portal_host(c)]
+    error_config = json.dumps({"known_hosts": known_hosts})
+    errors = string.Template((ROOT / "apps/route-errors/manifests/apps.yaml.tmpl").read_text()).substitute(
+        error_config=error_config, error_server_source=textwrap.indent(error_source, "    "),
+        error_code_hash=hashlib.sha256((error_source + error_config).encode()).hexdigest(),
+        error_knative_hosts=json.dumps(["*." + route["domain"] for route in c["routes"].values()
+                                       if route["kind"] == "knative"]))
+    with (output / "apps.yaml").open("a") as stream:
+        stream.write("\n---\n" + errors)
     tls.render(c, output)
     knative = output / "knative-config"
     knative.mkdir(exist_ok=True)
@@ -601,6 +614,9 @@ def apply_apps(cluster, output):
 
 def wait_apps(cluster, c):
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
+    cluster.call("rollout", "status", "deployment/route-errors", "-n", "test", "--timeout=300s")
+    cluster.call("wait", "ingresses.networking.internal.knative.dev/route-errors", "-n", "test",
+                 "--for=condition=Ready", "--timeout=300s")
     services = [("hello", c["routes"]["knative_domain"]["domain"]),
                 ("hello-nobuffer", c["routes"]["knative_nobuffer_domain"]["domain"]),
                 ("hello-default", c["routes"][resolve_route(c, "knative")]["domain"])]

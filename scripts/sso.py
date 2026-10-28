@@ -370,6 +370,19 @@ def test_plan(c, format):
             location = " / Location: " + origin(c) + "/oauth2/start?rd=..." if expected == "302" else ""
             lines += ["- " + url + " — 未認証期待HTTP " + expected + location + "（" + mode + "）"]
     if c["sso"]["enabled"]:
+        auth_url = origin(c) + "/"
+        if format == "shell":
+            auth_curl = ["curl", "--silent", "--show-error", "--max-time", "180",
+                         "--output", "/dev/null", "--write-out", "%{http_code}", auth_url]
+            lines += ["# 認証ページ / ログイン・ログアウトボタン（未認証でも表示）",
+                      "auth_status=$(" + shlex.join(auth_curl) + ")",
+                      'test "$auth_status" = 200']
+        else:
+            lines += ["", "## 認証ページ", "",
+                      "- " + auth_url + " — 未認証期待HTTP 200（ログイン・ログアウトボタン）",
+                      "- ブラウザでログインボタン→Google認証→このページへ戻ることを確認。",
+                      "- ログアウトボタン→このページへ戻り、保護アプリでは再認証されることを確認。",
+                      "  curlでのログアウト要求はブラウザのCookieを削除しない。", ""]
         lines += ["# 手動確認: Googleログイン→callback→元URL、期限切れ、ログアウト、許可外403、認証停止503。",
                   "# 認証済みで/get・32MiB upload/download・dripを比較。Cookieやトークンをログに出さない。",
                   "# Knativeはアクセスを止め、内部でPod 0件を確認してから認証済みブラウザで再アクセスする。"]

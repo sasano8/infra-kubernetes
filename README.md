@@ -352,6 +352,7 @@ python3 scripts/check-routes.py --internal knative
 ### 外部端末から：DNS・HTTPS・SSO
 
 Kongホストで、設定に対応する外部確認対象と期待応答を生成する。
+SSO有効時は、アプリのURLに加えて認証ホストのログイン・ログアウトページも含む。
 
 ```bash
 ./bin/infra test-plan --format markdown

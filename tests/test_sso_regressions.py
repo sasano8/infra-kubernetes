@@ -119,7 +119,8 @@ class SSORegressionTests(unittest.TestCase):
                         with self.subTest(enabled=enabled, mode=mode, paths=api_paths, output=output):
                             plan = sso.test_plan(config, output)
                             marker = ('test "$status" = ' if output == "shell" else "未認証期待HTTP ") + expected
-                            self.assertEqual(plan.count(marker), 6)
+                            count = 6 + int(output == "markdown" and enabled and expected == "200")
+                            self.assertEqual(plan.count(marker), count)
 
     def test_generated_browser_api_shell_accepts_401_and_rejects_302(self):
         fake_bin = self.path / "bin"
@@ -128,12 +129,16 @@ class SSORegressionTests(unittest.TestCase):
         curl.write_text('''#!/usr/bin/env bash
 set -eu
 headers=""
+status="$FAKE_STATUS"
 while [ "$#" -gt 0 ]; do
+  case "$1" in https://auth.knative.example.test/) status=200;; esac
   if [ "$1" = "--dump-header" ]; then shift; headers="$1"; fi
   shift
 done
-printf 'HTTP/1.1 %s\\r\\nLocation: /oauth2/start?rd=fixture\\r\\n\\r\\n' "$FAKE_STATUS" > "$headers"
-printf '%s' "$FAKE_STATUS"
+if [ -n "$headers" ]; then
+  printf 'HTTP/1.1 %s\\r\\nLocation: /oauth2/start?rd=fixture\\r\\n\\r\\n' "$status" > "$headers"
+fi
+printf '%s' "$status"
 ''')
         curl.chmod(0o755)
         config = self.plan_config(True, "browser", ["/get"])

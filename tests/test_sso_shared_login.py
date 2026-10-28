@@ -97,6 +97,20 @@ class SharedLoginTests(unittest.TestCase):
         self.assertIn("--redirect-url=https://login.standard-nobuffer.example.test:9443/oauth2/callback", args)
         self.assertIn("https://login.standard-nobuffer.example.test:9443/oauth2/start?rd=", sso.test_plan(config, "markdown"))
 
+    def test_plan_includes_auth_page_only_when_enabled(self):
+        self.raw["sso"]["auth_host"] = "login.knative.example.test"
+        self.raw["tls"]["host_https_port"] = 9443
+        config = self.load()
+        for output in ("markdown", "shell"):
+            plan = sso.test_plan(config, output)
+            self.assertIn("https://login.knative.example.test:9443/", plan)
+            if output == "shell":
+                self.assertIn('test "$auth_status" = 200', plan)
+            else:
+                self.assertIn("ログイン・ログアウトボタン", plan)
+        config["sso"]["enabled"] = False
+        self.assertNotIn("https://login.knative.example.test:9443/", sso.test_plan(config, "markdown"))
+
     def test_invalid_auth_host_and_cookie_scope_are_rejected(self):
         bad = (("auth_host", "evil.test"), ("auth_host", "deep.auth.knative.example.test"),
                ("auth_host", "hello-test-ksvc.knative.example.test"), ("auth_host", "auth.knative.example.test:443"),

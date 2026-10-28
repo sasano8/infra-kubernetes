@@ -37,19 +37,19 @@ class SSOConfiguration(unittest.TestCase):
         self.secret.write_text(json.dumps(self.original))
         self.secret.chmod(0o600)
 
-    def test_legacy_browser_is_normalized_and_rendered_as_sso(self):
+    def test_sso_is_rendered_and_old_browser_value_is_rejected(self):
         raw = json.loads(self.path.read_text())
-        for mode in ('browser', 'sso'):
-            with self.subTest(mode=mode):
-                raw['sso']['routes'] = {'standard_domain': mode}
-                self.path.write_text(json.dumps(raw))
-                config = infra.load(self.path)
-                self.assertEqual(config['sso']['routes']['standard_domain'], 'sso')
-                infra.render(config, self.directory)
-                items = json.loads((self.directory / 'sso.json').read_text())['items']
-                plugin = next(i for i in items if i['metadata']['name'] == 'sso-standard-domain')
-                self.assertEqual(plugin['config']['mode'], 'sso')
-                self.assertNotIn('（browser）', sso.test_plan(config, 'markdown'))
+        raw['sso']['routes'] = {'standard_domain': 'sso'}
+        self.path.write_text(json.dumps(raw))
+        config = infra.load(self.path)
+        infra.render(config, self.directory)
+        items = json.loads((self.directory / 'sso.json').read_text())['items']
+        plugin = next(i for i in items if i['metadata']['name'] == 'sso-standard-domain')
+        self.assertEqual(plugin['config']['mode'], 'sso')
+        raw['sso']['routes'] = {'standard_domain': 'browser'}
+        self.path.write_text(json.dumps(raw))
+        with self.assertRaisesRegex(ValueError, 'sso / api / public'):
+            infra.load(self.path)
 
     def configure(self, answers, rotate=False):
         output = io.StringIO()

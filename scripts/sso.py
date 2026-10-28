@@ -111,11 +111,8 @@ def normalize(c, routes):
         raise ValueError("sso.enabled は true / false")
     if type(s["cookie_expire_hours"]) is not int or not 2 <= s["cookie_expire_hours"] <= 8760:
         raise ValueError("sso.cookie_expire_hours は2〜8760時間の整数です（更新間隔は1時間）")
-    if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("sso", "browser", "api", "public") for k, v in s["routes"].items()):
+    if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("sso", "api", "public") for k, v in s["routes"].items()):
         raise ValueError("sso.routes はルートIDと sso / api / public の対応を指定してください")
-    # Preserve existing environment files while emitting only the clearer name.
-    s["routes"] = {route: "sso" if mode == "browser" else mode
-                   for route, mode in s["routes"].items()}
     if s["routes"].get("knative_public", "public") != "public":
         raise ValueError("knative_public はpublic専用経路です")
     if not valid_id_token_header(s["id_token_header"]):

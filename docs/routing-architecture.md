@@ -1,106 +1,88 @@
-# Host判定、アプリ転送、SSOポータルとエラー生成
+# Hostによる転送とエラー生成の配置
 
-現在の実装を示す。簡素化後の構成は後半に分けて記載する。
+入口の判定はHostに絞る。公開されたHostなら転送先へ渡し、未公開のHostなら421を返す。
+パスが存在するかは転送先が判断する。SSOポータルも、この点では他のアプリと同じである。
 
-## 現在の転送経路
+以下は **簡素化後の設計（未実装）**。現行との差分は末尾に記載する。
+
+## Hostによる転送
 
 ```mermaid
 flowchart TD
-    Client[クライアント] --> TLS[TLS証明書の検証]
-    TLS --> Kong{KongのHost・パス経路に一致するか}
-    Kong -->|通常Serviceの経路| Standard[通常のService → 業務アプリPod]
-    Kong -->|Knativeの経路| Kourier{KourierにアプリのHost経路があるか}
-    Kourier -->|完全一致するアプリあり| App[Knative業務アプリ]
-    Kourier -->|SSOポータルのHostに一致| Login[ログイン画面への通常アクセス]
-    Kourier -->|アプリなし・wildcard fallback| KH[X-Infra-Error: unknown_host]
-    Kong -->|一致する経路なし| Classify{生成済みの既知Host一覧にあるか}
-    Classify -->|ある| KP[X-Infra-Error: path_not_found]
-    Classify -->|ない| KU[X-Infra-Error: unknown_host]
-    KP --> Alias[test/error-service alias]
-    KU --> Alias
-    KH --> Alias
-    Alias --> Service[通常のService test/platform-portal:8080]
-    Service --> Renderer
-    Login --> UI
-    subgraph Portal[SSOポータル test/sso：同一Pod・常駐]
+    C[クライアント] --> K{Kong：公開Hostの条件に一致するか}
+    K -->|通常ServiceのHostに一致| S[通常Service → アプリ]
+    K -->|KnativeのHost・ドメイン条件に一致| Q{Kourier：完全一致するアプリHostがあるか}
+    K -->|一致なし| E[エラーサービス → 421]
+    Q -->|あり| A[Knativeアプリ]
+    Q -->|なし・wildcard fallback| E
+```
+
+Kongでは公開するHostの入口を `/` Prefixに揃え、すべてのパスを転送先へ渡す。
+Kongの経路設定にはパス条件が残るが、`/` が全パスを受けるため、入口の振り分けはHostで決まる。
+既存のbuffering／no-buffering設定は各経路で維持する。
+
+Knativeのワイルドカード経路はKourierへ転送するための入口であり、アプリの存在を保証するものではない。
+Kourierが完全一致するアプリHostへ転送し、アプリがなければwildcard fallbackからエラーサービスへ渡す。
+Kong側で個別Hostだけを公開する経路では、その公開設定への一致も必要になる。
+
+ログイン画面を提供するポータルも、通常のKnativeアプリとして「あり」の経路を通る。
+ポータル専用のHost判定や分岐は設けない。
+認証の要否は各経路の設定に従うが、この図はHostによる転送だけを示している。
+SSOの処理は [SSOの構成とリダイレクト](sso-flow.md) を参照。
+
+## パスとアプリの応答
+
+Hostが一致すれば、パスは転送先の責任とする。
+転送先が404を返しても、Kong・Kourierはその応答をエラーサービスへ振り直さない。
+
+| 状況 | 応答する主体・結果 |
+| --- | --- |
+| 公開Hostに一致しない | エラーサービスから421、`unknown_host` |
+| Knativeドメインには一致するが、アプリHostが存在しない | 同上 |
+| アプリHostが存在し、パスが存在しない | アプリ自身の404 |
+| アプリが独自JSONで404・421・500などを返す | アプリのステータス・Content-Type・本文を維持 |
+
+**プロキシのfallbackで `path_not_found` と `unknown_host` を区別する必要はない。**
+アプリ自身が404の本文として `path_not_found` を使うことは、この入口判定とは別である。
+認証ホストもHost全体の入口を用意し、未公開の認証用パスはその転送先の処理で拒否する。
+`/oauth2/auth` などの外部公開制限を解除するという意味ではない。
+
+TLS証明書の検証はHTTPより前に行われる。証明書対象外のHostでは、421を見る前にTLS検証で失敗し得る。
+
+## エラー生成サービスの配置
+
+こちらはHost判定の図ではなく、エラーを生成するプログラムがどこで動くかを示す。
+
+```mermaid
+flowchart TD
+    K[KongのHost不一致] --> Alias[通常Service test/error-service：alias]
+    Q[KourierのHost不一致] --> Alias
+    Alias --> S[通常Service test/platform-portal:8080]
+    S --> E
+    subgraph Pod[ポータルの同一Pod・常駐]
+        E[エラー生成：application/problem+json]
         UI[ログイン・ログアウト画面]
-        Renderer[エラー生成 application/problem+json]
-    end
-    Kong -. SSO対象経路ではCookieを内部確認 .-> OAuth[oauth2-proxy：別Deployment]
-    UI -. ブラウザを認証ホストへ誘導・Kong経由 .-> OAuth
-    OAuth -. Google OAuth .-> Google[Google]
-```
-
-通常の業務リクエストの本文は、KongからServiceまたはKourierへ進む。
-oauth2-proxyにはCookieによる認証確認を送り、業務リクエストの本文は送らない。
-SSO認証不要のpublic経路ではその確認を行わない。
-
-エラー生成とログイン画面は **SSOポータルの同じアプリ・同じPod** に入っている。
-Google OAuth・セッション確認を行う **oauth2-proxy本体は別のDeployment**。
-「認証サービスに同梱」は、ログイン画面を提供するポータルに同梱する意味であり、
-oauth2-proxyのプロセスやコンテナを改変してエラー処理を追加したわけではない。
-
-エラー経路は通常のServiceからユーザーコンテナ8080番へ直結し、Kourier・Activator・queue-proxyへ戻さない。
-別の `error_service` を指定した場合も、通常のServiceへ直接接続する。
-
-## アプリ自身の404は上書きしない
-
-```mermaid
-sequenceDiagram
-    participant C as クライアント
-    participant K as Kong
-    participant Q as Kourier（Knativeの場合）
-    participant A as 業務アプリ
-    C->>K: 有効なアプリHostへの要求
-    K->>Q: Hostとパスを保持して転送
-    Q->>A: 一致したアプリへ転送
-    A-->>Q: 404 + アプリ固有Content-Type・JSON
-    Q-->>K: 同じステータス・Content-Type・本文
-    K-->>C: 同じステータス・Content-Type・本文
-    Note over K,A: この応答を理由にエラーサービスを呼ぶ処理はない
-```
-
-通常ServiceではKourierを挟まず、Kongからアプリへ転送する。同じくアプリの応答を維持する。
-エラーサービスを使うかどうかは、転送前に経路が見つからなかったかで決まる。
-アプリのレスポンスコード・JSONを読んでエラーサービスへ振り直すことはしない。
-SSOの認証確認とCookie更新などの処理は別であり、業務アプリのJSONを書き換えるものではない。
-
-現在の結合テストは、アプリの404本文がそのまま返ることを確認している。
-アプリ固有JSONのContent-Typeを含めた検証拡充は、下記の簡素化計画に含める。
-
-## 現在の余分な処理
-
-Kongの最後のfallbackには、既知Host一覧から404か421かを決めるpre-functionがある。
-これは「認証ホストは存在するが `/` を公開していない」といった場合を、
-未知Hostと区別しようとして追加したもの。アプリから返ってきた404の処理ではない。
-
-Host不一致だけをエラーサービスへ送る目的なら、この一覧と404分類は不要。
-また、新しいHostの入口を別管理で追加した場合に一覧と実際の経路がずれる問題もある。
-この処理は [簡素化計画](plans/simplify-host-errors.md) で撤去する対象。
-
-## 簡素化後の目標（未実装）
-
-```mermaid
-flowchart TD
-    C[クライアント] --> K{Kong：Hostごとの入口に一致するか}
-    K -->|通常サービスのHost| S[通常Service → 業務アプリ]
-    K -->|KnativeのHost・経路ドメイン| Q{Kourier：アプリHostに一致するか}
-    K -->|認証ホスト| O[認証用の入口]
-    K -->|Host不一致| E[通常Service error_service]
-    Q -->|一致| A[Knative業務アプリ]
-    Q -->|ポータルHostに一致| UI[ログイン画面]
-    Q -->|Host不一致| E
-    E --> P[エラー生成：421のみ]
-    subgraph Portal[SSOポータルアプリ：同一Pod]
-        UI
-        P
     end
 ```
 
-認証ホストもHost単位の入口へ振り分け、未定義パスはその入口で404にする。
-外部公開しない認証用パスの制限は、Host不一致とは別の既存処理として扱う。
-業務アプリへ接続した後の404・421・500などは、アプリ自身の応答を返す。
-エラーサービス自身に存在しないパスへの404も、そのアプリ自身の通常の404である。
+既定では、エラー生成プログラムをログイン画面のポータルに同梱している。
+同じPodを利用する配置上の関係であり、エラー生成のためにSSO認証を行うわけではない。
+SSO無効時も、既定のエラー生成に必要なPodは起動する。
+Google OAuth・セッション確認を行うoauth2-proxy本体は別Deploymentである。
+
+エラー経路は通常のServiceからユーザーコンテナへ直接転送し、Kourier・Activator・queue-proxyへ戻さない。
+そのため転送が循環しない。設定で別の `error_service` を指定した場合も、通常のServiceへ直接接続する。
+
+## 現行実装との差分
+
+上の配置図は現行どおりだが、Hostだけに絞る入口判定はまだ実装していない。
+
+- 通常アプリの入口はすでに `/` Prefixだが、認証ホストの入口は現在 `/oauth2` に限定されている。
+- Kongの最後のfallbackには、生成済みの既知Host一覧から `path_not_found` の404と `unknown_host` の421を分ける処理が残っている。
+- 簡素化では認証ホストも `/` Prefixで受け、既知Host一覧とfallbackの404分類を削除する。
+- アプリ自身の404本文を上書きしない動作は、現在も維持されている。
+
+実施順序と受け入れ条件は [簡素化計画](plans/simplify-host-errors.md) を参照。
 
 ## 実装と検証の参照先
 

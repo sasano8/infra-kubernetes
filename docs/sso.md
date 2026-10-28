@@ -81,12 +81,14 @@ Cookie共有親ドメインを設定できる。
 https://auth.knative.tmp.ys-method-dev.com/oauth2/callback
 ```
 
-`auth_host` は既定で `auth.<knative_domain>`。既存4経路ドメインの直下のホストへ変更できる。
+`auth_host` は既定で `auth.<knative_domain>`。公開経路ドメインの直下のホストへ変更できる。
 Kongがこのホストの `/oauth2` をoauth2-proxyへ転送し、対応する既存ワイルドカード証明書を
 Ingressに明示する。Knative Serviceは作らない。既存のワイルドカードDNSがKongへ向いていれば
 認証専用Aレコードは不要。ただし同名レコードがある場合は到達先も確認する。
-`cookie_domain` は既定で `base_domain`、省略時は4経路の共通親ドメイン。
-認証ホストと全4経路がこの共有範囲に入ることを設定検証する。
+`cookie_domain` は既定で `base_domain`、省略時は全経路の共通親ドメイン。
+認証ホストと全経路がこの共有範囲に入ることを設定検証する。
+ログイン・ログアウト画面は [knative_public](knative-public.md) 上の通常のKnativeアプリ。
+public経路でもログイン処理は同じoauth2-proxyを使うため、standardなどの保護アプリとセッションを共有する。
 非標準HTTPSポートを使う場合はGoogleへ登録するURLにもそのポートを含める。
 
 oauth2-proxyのredirect URLはこの完全なURLに固定する。アプリへの未認証GET／HEADは

@@ -56,7 +56,7 @@ class SSOTests(unittest.TestCase):
     def test_render_has_auth_for_every_explicit_and_default_route(self):
         c = self.config(); infra.render(c,self.path)
         routes = (self.path/'routes.yaml').read_text()
-        self.assertEqual(routes.count('konghq.com/plugins: "sso-'),6)
+        self.assertEqual(routes.count('konghq.com/plugins: "sso-'),7)
         kong = (self.path/'kong.yaml').read_text()
         self.assertIn('bundled,session-auth',kong)
         self.assertIn('/opt/kong/plugins/session-auth',kong)
@@ -78,7 +78,7 @@ class SSOTests(unittest.TestCase):
         c=self.config();infra.render(c,self.path)
         self.c['sso']={'enabled':False};c=self.config();infra.render(c,self.path)
         self.assertEqual(json.loads((self.path/'sso.json').read_text())['items'],[])
-        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: ""'),6)
+        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/plugins: ""'),7)
         self.assertNotIn('session-auth',(self.path/'kong.yaml').read_text())
         sso.preflight(c,None)
 
@@ -150,7 +150,7 @@ class SSOTests(unittest.TestCase):
                 def get(self,name,*args):
                     if name=='configmap/config-network': return {'data':{'domain-template':infra.TEMPLATE}}
                     name=name.removeprefix('ksvc/')
-                    domain=c['knative_nobuffer_domain'] if name=='hello-nobuffer' else c[c['default_routes']['knative']] if name=='hello-default' else c['knative_domain']
+                    domain=c['knative_public'] if name=='sso' else c['knative_nobuffer_domain'] if name=='hello-nobuffer' else c[c['default_routes']['knative']] if name=='hello-default' else c['knative_domain']
                     return {'status':{'url':'http://'+name+'-test-ksvc.'+domain,'conditions':[{'type':'Ready','status':'True'}]}}
                 def call(self,*args,**kwargs):
                     calls.append(args)

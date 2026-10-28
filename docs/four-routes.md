@@ -1,5 +1,8 @@
 # buffer／nobuffer の4経路
 
+この4経路に加え、SSOを要求しない [knative_public経路](knative-public.md) を提供する。
+同経路はワイルドカードで任意のKnativeアプリを公開し、ログイン画面も通常のアプリとして配備する。
+
 | 種類 | 設定キー | サンプルの公開ホスト | Kong buffering |
 | --- | --- | --- | --- |
 | 通常 buffer | `standard_domain` | `hello-test-ssvc.<standard_domain>` | request／responseとも有効 |
@@ -54,6 +57,7 @@ metadata:
 | --- | --- | --- |
 | `knative_domain` | `knative_domain` | request／response buffering有効 |
 | `knative_nobuffer_domain` | `knative_nobuffer_domain` | request／response buffering無効 |
+| `knative_public` | `knative_public` | SSO不要、request／response buffering有効 |
 
 アプリのラベルは公開先を選ぶだけであり、bufferingの真偽を指示しない。
 ドメイン・buffering・TLS・タイムアウトなどはインフラのルート定義が決める。

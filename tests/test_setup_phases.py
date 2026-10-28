@@ -97,7 +97,7 @@ class SetupPhases(unittest.TestCase):
             if name == 'configmap/session-auth-code':
                 return {'data': {p.name: p.read_text() for p in (ROOT / 'plugins/sso/kong/plugins/session-auth').glob('*.lua')}}
             service = name.removeprefix('ksvc/')
-            route = 'knative_nobuffer_domain' if service == 'hello-nobuffer' else 'knative_domain'
+            route = 'knative_public' if service == 'sso' else 'knative_nobuffer_domain' if service == 'hello-nobuffer' else 'knative_domain'
             return {'status': {'url': 'http://' + service + '-test-ksvc.' + self.config[route],
                                'conditions': [{'type': 'Ready', 'status': 'True'}]}}
         self.cluster.get.side_effect = get

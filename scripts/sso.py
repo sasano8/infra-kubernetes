@@ -1,6 +1,8 @@
 """Optional Google SSO: render public configuration; keep credentials out of artifacts."""
 import base64
 import getpass
+import html
+import hashlib
 import os
 import secrets
 import tempfile
@@ -11,6 +13,7 @@ import re
 import stat
 import shlex
 import subprocess
+import string
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
@@ -28,6 +31,45 @@ def origin(c):
     return "https://" + c["sso"]["auth_host"] + ("" if port == 443 else ":" + str(port))
 
 
+def portal_host(c):
+    return "sso-test-ksvc." + c["knative_public"]
+
+
+def portal_origin(c):
+    port = c["tls"]["host_https_port"] or 443
+    return "https://" + portal_host(c) + ("" if port == 443 else ":" + str(port))
+
+
+def render_portal(c, output):
+    if not c["sso"]["enabled"]:
+        return
+    page = string.Template((ROOT / "apps/sso/index.html.tmpl").read_text()).substitute(
+        login_url=html.escape(origin(c) + "/oauth2/start", quote=True),
+        logout_url=html.escape(origin(c) + "/oauth2/sign_out", quote=True),
+        return_url=html.escape(portal_origin(c) + "/", quote=True))
+    config = resource("v1", "ConfigMap", "sso-portal", "test", data={"index.html": page})
+    service = resource("serving.knative.dev/v1", "Service", "sso", "test", spec={
+        "template": {"metadata": {"annotations": {"autoscaling.knative.dev/min-scale": "0",
+                                                "infra.sasano8.dev/page-sha": hashlib.sha256(page.encode()).hexdigest()}},
+                     "spec": {"containers": [{
+                         "name": "http", "image": "python:3.13-alpine",
+                         "command": ["python3", "-m", "http.server", "8080", "--directory", "/site"],
+                         "ports": [{"containerPort": 8080}],
+                         "volumeMounts": [{"name": "site", "mountPath": "/site", "readOnly": True}],
+                         "resources": {"requests": {"cpu": "10m", "memory": "32Mi"},
+                                       "limits": {"cpu": "100m", "memory": "64Mi"}},
+                         "securityContext": {"runAsNonRoot": True, "runAsUser": 1000,
+                                             "allowPrivilegeEscalation": False,
+                                             "capabilities": {"drop": ["ALL"]},
+                                             "seccompProfile": {"type": "RuntimeDefault"}}}],
+                              "volumes": [{"name": "site", "configMap": {"name": "sso-portal"}}]}}})
+    service["metadata"]["labels"] = dict(OWNER, **{"infra.sasano8.dev/route": "knative_public"})
+    target = output / "apps.yaml"
+    with target.open("a") as stream:
+        for item in (config, service):
+            stream.write("\n---\n" + json.dumps(item, indent=2) + "\n")
+
+
 def common_domain(domains):
     labels = list(zip(*(reversed(domain.split(".")) for domain in domains)))
     common = []
@@ -43,11 +85,12 @@ def auth_certificate(c):
     for route, secret in (("standard_domain", "standard-tls"),
                           ("standard_nobuffer_domain", "standard-nobuffer-tls"),
                           ("knative_domain", "knative-wildcard-tls"),
-                          ("knative_nobuffer_domain", "knative-nobuffer-tls")):
+                          ("knative_nobuffer_domain", "knative-nobuffer-tls"),
+                          ("knative_public", "knative-public-tls")):
         host, domain = c["sso"]["auth_host"], c[route]
         if host.endswith("." + domain) and "." not in host[:-(len(domain) + 1)]:
             return secret
-    raise ValueError("sso.auth_host は既存の4経路ドメインの直下に指定してください（ワイルドカード証明書を使用）")
+    raise ValueError("sso.auth_host は公開経路ドメインの直下に指定してください（ワイルドカード証明書を使用）")
 
 
 def valid_id_token_header(header):
@@ -70,6 +113,8 @@ def normalize(c, routes):
         raise ValueError("sso.cookie_expire_hours は2〜8760時間の整数です（更新間隔は1時間）")
     if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("browser", "api", "public") for k, v in s["routes"].items()):
         raise ValueError("sso.routes はルートIDと browser / api / public の対応を指定してください")
+    if s["routes"].get("knative_public", "public") != "public":
+        raise ValueError("knative_public はpublic専用経路です")
     if not valid_id_token_header(s["id_token_header"]):
         raise ValueError("sso.id_token_header はX-で始まる専用ヘッダー名を指定してください（転送・identity・Kong制御ヘッダーは予約済み）")
     token_routes = s["id_token_routes"]
@@ -77,6 +122,8 @@ def normalize(c, routes):
             or any(not isinstance(route, str) or route not in routes for route in token_routes)
             or len(set(token_routes)) != len(token_routes)):
         raise ValueError("sso.id_token_routes は重複のない公開ルートIDの配列を指定してください")
+    if "knative_public" in token_routes:
+        raise ValueError("sso.id_token_routes: public経路にはIDトークンを転送できません")
     if any(s["routes"].get(route, "browser") == "public" for route in token_routes):
         raise ValueError("sso.id_token_routes にpublicルートは指定できません")
     if not isinstance(s["secret_file"], str):
@@ -101,8 +148,8 @@ def normalize(c, routes):
                 or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in value.split("."))):
             raise ValueError("sso." + key + " は小文字のDNS名を指定してください（先頭のドットは不要）")
     if any(not domain.endswith("." + s["cookie_domain"]) for domain in domains + [s["auth_host"]]):
-        raise ValueError("sso.cookie_domain は認証ホストと全4経路に共通する親ドメインを指定してください")
-    if s["auth_host"] in hosts(c):
+        raise ValueError("sso.cookie_domain は認証ホストと全公開経路に共通する親ドメインを指定してください")
+    if s["auth_host"] in hosts(c) + [portal_host(c)]:
         raise ValueError("sso.auth_host はアプリの公開ホストと区別してください")
     auth_certificate(c)
 
@@ -226,7 +273,9 @@ def render(c, output, route_ids):
     annotations = {}
     for route in route_ids:
         name = "sso-" + route.replace("_", "-")
-        items.append(plugin(name, s["routes"].get(route, "browser"), all_hosts, route in s["id_token_routes"]))
+        items.append(plugin(name, "public" if route == "knative_public" else s["routes"].get(route, "browser"),
+                            ["*." + c[route]] if route == "knative_public" else all_hosts,
+                            route in s["id_token_routes"]))
         annotations[route] = '    konghq.com/plugins: "' + name + '"'
     items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
     args = ["--provider=google", "--http-address=0.0.0.0:4180", "--upstream=static://202",
@@ -238,7 +287,7 @@ def render(c, output, route_ids):
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",
             "--pass-access-token=false", "--pass-authorization-header=false", "--request-logging=false"]
     args.append("--set-authorization-header=" + str(bool(s["id_token_routes"])).lower())
-    args += ["--whitelist-domain=" + h + ("" if port == 443 else ":" + str(port)) for h in all_hosts]
+    args += ["--whitelist-domain=" + h + ("" if port == 443 else ":" + str(port)) for h in all_hosts + [portal_host(c)]]
     env = [{"name": name, "valueFrom": {"secretKeyRef": {"name": SECRET, "key": key}}}
            for name, key in zip(("OAUTH2_PROXY_CLIENT_ID", "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET"), KEYS)]
     items.append(resource("apps/v1", "Deployment", "oauth2-proxy", "test", spec={
@@ -254,9 +303,7 @@ def render(c, output, route_ids):
     items.append(resource("v1", "Service", "oauth2-proxy", "test", spec={"selector": {"app": "oauth2-proxy"},
                         "ports": [{"name": "http", "port": 4180, "targetPort": "http"}]}))
     rules = [{"host": h, "http": {"paths": [{"path": "/oauth2", "pathType": "Prefix", "backend": {
-        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}},
-        {"path": "/", "pathType": "Exact", "backend": {
-            "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in [s["auth_host"]]]
+        "service": {"name": "oauth2-proxy", "port": {"number": 4180}}}}]}} for h in [s["auth_host"]]]
     ingress = resource("networking.k8s.io/v1", "Ingress", "oauth2-proxy", "test", spec={
         "ingressClassName": "kong-ingress", "rules": rules,
         "tls": [{"hosts": [s["auth_host"]], "secretName": auth_certificate(c)}]})
@@ -318,7 +365,9 @@ def cleanup_disabled(cluster, c):
     if c["sso"]["enabled"]:
         return
     for kind, name, ns in (("ingress", "oauth2-proxy", "test"), ("deployment", "oauth2-proxy", "test"),
-                           ("service", "oauth2-proxy", "test")):
+                           ("service", "oauth2-proxy", "test"),
+                           ("services.serving.knative.dev", "sso", "test"),
+                           ("configmap", "sso-portal", "test")):
         result = cluster.call("get", kind + "/" + name, "-n", ns, "--ignore-not-found", "-o",
                               'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}', capture_output=True, text=True)
         if result.stdout.strip() == "infra-kubernetes":
@@ -338,6 +387,9 @@ RESOURCE_IDENTITIES = (
     ("configuration.konghq.com/v1", "KongPlugin", "sso-knative-domain", "test"),
     ("configuration.konghq.com/v1", "KongPlugin", "sso-knative-nobuffer-domain", "test"),
     ("configuration.konghq.com/v1", "KongPlugin", "sso-oauth-endpoints", "test"),
+    ("configuration.konghq.com/v1", "KongPlugin", "sso-knative-public", "test"),
+    ("v1", "ConfigMap", "sso-portal", "test"),
+    ("serving.knative.dev/v1", "Service", "sso", "test"),
 )
 
 
@@ -353,7 +405,8 @@ def test_plan(c, format):
                "headers=$(mktemp)", "trap " + shlex.quote('rm -f "$headers"') + " EXIT"]
              if format == "shell" else ["# 外部確認プラン", "", "別ネットワークで実施。未認証・認証済み・内部診断を別々に記録する。", ""])
     for host, route in zip(hosts(c), ids):
-        mode = c["sso"]["routes"].get(route, "browser") if c["sso"]["enabled"] else "public"
+        mode = (c["sso"]["routes"].get(route, "browser")
+                if c["sso"]["enabled"] and route != "knative_public" else "public")
         path = "/get"
         api_request = mode == "api" or any(path == prefix or path.startswith(prefix + "/") for prefix in c["sso"]["api_paths"])
         expected = "200" if mode == "public" else "401" if api_request else "302"
@@ -370,7 +423,7 @@ def test_plan(c, format):
             location = " / Location: " + origin(c) + "/oauth2/start?rd=..." if expected == "302" else ""
             lines += ["- " + url + " — 未認証期待HTTP " + expected + location + "（" + mode + "）"]
     if c["sso"]["enabled"]:
-        auth_url = origin(c) + "/"
+        auth_url = portal_origin(c) + "/"
         if format == "shell":
             auth_curl = ["curl", "--silent", "--show-error", "--max-time", "180",
                          "--output", "/dev/null", "--write-out", "%{http_code}", auth_url]

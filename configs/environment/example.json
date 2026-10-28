@@ -35,5 +35,6 @@
     "pinner": {
       "enabled": false
     }
-  }
+  },
+  "knative_public": "knative-public.example.test"
 }

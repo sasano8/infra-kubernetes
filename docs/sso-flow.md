@@ -79,10 +79,13 @@ SSO有効時に生成する `test/oauth2-proxy` Ingressが、次の組み合わ�
 | Kongプラグイン | `sso-oauth-endpoints`：OAuth用の公開パスと認証ホストを検証 |
 
 このOAuthルートでは通常のアプリ用セッション認証を要求せず、ログイン開始とcallbackを受け付ける。
-公開するパスは `/`（Exact）、`/oauth2/start`、`/oauth2/callback`、`/oauth2/sign_in`、`/oauth2/sign_out`。
-`/` はKongプラグインがログイン・ログアウトボタンのあるHTMLを返す。
-ログインは `/oauth2/start?rd=%2F`、ログアウトは `/oauth2/sign_out?rd=%2F` を呼び、
-完了後は認証ホストの `/` に戻る。ページ表示だけでは認証を開始せず、セッション状態も表示しない。
+認証ホストで公開するパスは `/oauth2/start`、`/oauth2/callback`、`/oauth2/sign_in`、`/oauth2/sign_out`。
+ログイン画面は通常のKnativeアプリ `test/sso` として `knative_public` 経路に公開する。
+URLは `https://sso-test-ksvc.<knative_public>/`。KongがHTMLを返す特別処理はない。
+ボタンは認証ホストの `/oauth2/start` または `/oauth2/sign_out` を呼び、
+`rd` にログイン画面の絶対URLを指定して完了後に戻る。戻り先はoauth2-proxyのallowlistへ登録する。
+ページ表示だけでは認証を開始せず、セッション状態も表示しない。
+認証ホストの `/` はルートを定義しない。
 アプリから通常の認証を開始した場合は、従来どおり元アプリへ戻る。
 セッション確認用の `/oauth2/auth` はKongからクラスタ内部で呼び、外部OAuthルートでは拒否する。
 認証専用ホストにはKnative Serviceを作らず、Kourierも経由しない。

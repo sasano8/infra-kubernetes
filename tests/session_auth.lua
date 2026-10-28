@@ -372,28 +372,30 @@ test('public route strips spoofed identity but does not authenticate', function(
   assert(calls == 0 and result == nil and cleared['X-Auth-Request-Email'])
 end)
 
-test('auth landing page offers explicit login and logout without checking session', function()
+test('oauth root is not a special public landing page', function()
   conf.mode = 'oauth'
   request.host = conf.auth_host
   conf.hosts = {conf.auth_host}
   request.path = '/'
-
   handler:access(conf)
-
-  assert(result.status == 200 and calls == 0)
-  assert(result.body:find('action="/oauth2/start"', 1, true))
-  assert(result.body:find('action="/oauth2/sign_out"', 1, true))
-  assert(result.body:find('name="rd" value="/"', 1, true))
-  assert(result.headers['Content-Type'] == 'text/html; charset=utf-8')
-  assert(result.headers['Cache-Control'] == 'no-store')
+  assert(result.status == 404 and calls == 0)
 end)
 
-test('auth landing page is not served on application hosts', function()
-  conf.mode = 'oauth'
-  request.path = '/'
-
+test('public route accepts one wildcard label and strips session cookies', function()
+  conf.mode = 'public'
+  conf.hosts = {'*.knative-public.example.test'}
+  request.host = 'sso-test-ksvc.knative-public.example.test'
+  request.cookie = '__Secure-infra_sso=private; app=visible'
   handler:access(conf)
+  assert(calls == 0 and result == nil)
+  assert(outgoing['Cookie'] == ' app=visible')
+end)
 
+test('public wildcard does not accept nested or unrelated hosts', function()
+  conf.mode = 'public'
+  conf.hosts = {'*.knative-public.example.test'}
+  request.host = 'nested.app.knative-public.example.test'
+  handler:access(conf)
   assert(result.status == 403 and calls == 0)
 end)
 

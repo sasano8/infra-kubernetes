@@ -131,7 +131,7 @@ set -eu
 headers=""
 status="$FAKE_STATUS"
 while [ "$#" -gt 0 ]; do
-  case "$1" in https://auth.knative.example.test/) status=200;; esac
+  case "$1" in https://sso-test-ksvc.knative-public.example.test/) status=200;; esac
   if [ "$1" = "--dump-header" ]; then shift; headers="$1"; fi
   shift
 done

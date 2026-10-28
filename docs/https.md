@@ -26,6 +26,8 @@ Cloudflare の DNS で次の A レコードを **DNS only** として登録し�
 | `knative.tmp.ys-method-dev.com` | Knative buffer のベースドメイン |
 | `*.knative-nobuffer.tmp.ys-method-dev.com` | Knative nobufferのサブドメイン |
 | `knative-nobuffer.tmp.ys-method-dev.com` | Knative nobuffer のベースドメイン |
+| `*.knative-public.tmp.ys-method-dev.com` | SSO不要のKnativeアプリ |
+| `knative-public.tmp.ys-method-dev.com` | Knative publicのベースドメイン |
 
 同名の Tunnel 用 CNAME がある場合は、切り替える検証用のレコードだけ整理する。
 SSO や Caddy の本番レコードは変更しない。
@@ -80,6 +82,7 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
   "standard_domain": "standard.tmp.ys-method-dev.com",
   "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
   "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
+  "knative_public": "knative-public.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -142,6 +145,7 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 | `test/knative-wildcard-tls` | `knative_domain` と `*.knative_domain` |
 | `test/standard-nobuffer-tls` | `standard_nobuffer_domain` と `*.standard_nobuffer_domain` |
 | `test/knative-nobuffer-tls` | `knative_nobuffer_domain` と `*.knative_nobuffer_domain` |
+| `test/knative-public-tls` | `knative_public` と `*.knative_public` |
 
 証明書の Ready を各最大600秒待ち、その後に TLS Secret を参照する Ingress と Kong を配備する。
 追加の Knative Service も同じ1階層の命名ならワイルドカード証明書を共用できる。

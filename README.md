@@ -1,6 +1,6 @@
 # infra-kubernetes
 
-Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative の buffer／nobuffer 計4経路を確認する。
+Linux ホスト上に k0s・Kong・Knative を構築し、通常 Service と Knative のbuffer／nobuffer経路と、SSO不要の `knative_public` 経路を提供する。
 Kong は DB-less のまま、KIC（Kong Ingress Controller）で Ingress を反映する。
 
 ## SSO認証と公開callback
@@ -232,6 +232,7 @@ cat > configs/environment/local.json <<'EOF'
   "standard_domain": "standard.tmp.ys-method-dev.com",
   "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
   "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
+  "knative_public": "knative-public.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -352,7 +353,7 @@ python3 scripts/check-routes.py --internal knative
 ### 外部端末から：DNS・HTTPS・SSO
 
 Kongホストで、設定に対応する外部確認対象と期待応答を生成する。
-SSO有効時は、アプリのURLに加えて認証ホストのログイン・ログアウトページも含む。
+SSO有効時は、アプリのURLに加えて `knative_public` 上のログイン・ログアウトページも含む。
 
 ```bash
 ./bin/infra test-plan --format markdown
@@ -399,6 +400,9 @@ python3 scripts/prune-resources.py apply
 KnativeアプリはService本体の `metadata.labels` に
 `infra.sasano8.dev/route: knative_domain` または
 `infra.sasano8.dev/route: knative_nobuffer_domain` を指定して公開ルートを選ぶ。
+SSOを要求しないアプリは `infra.sasano8.dev/route: knative_public` を指定する。
+この経路はワイルドカードでKourierへ転送するため、アプリごとのKong設定は不要。
+[公開Knative経路の設定とDNS](docs/knative-public.md)を参照。
 アプリがbufferingの真偽を指定するのではなく、通信特性は選択したルートの定義に従う。
 
 インストール時に `default_routes.standard` と `default_routes.knative` を選択できる。
@@ -408,12 +412,15 @@ KnativeアプリはService本体の `metadata.labels` に
 
 ## Google Workspace SSO
 
-認証ホストの `https://<sso.auth_host>/` に、ログイン・ログアウトボタンを用意する。
+SSO有効時は通常のKnativeアプリ `test/sso` を `knative_public` 経路に配備し、
+`https://sso-test-ksvc.<knative_public>/` にログイン・ログアウトボタンを用意する。
 ログインボタンでGoogle SSOへ進み、認証後はこのページへ戻る。
 ログアウトボタンは全アプリ共通のSSO Cookieを削除してこのページへ戻るため、
 勝手に再ログインは始まらない。Google自体のログイン状態は維持される。
 ページ自体は未認証でも表示でき、現在のログイン状態は表示しない。
-各アプリにも、この認証ホストへのリンクを置ける。
+各アプリにも、このログインページへのリンクを置ける。
+KongはHTMLを生成せず、認証ホストでは `/oauth2/*` だけをoauth2-proxyへ転送する。
+認証ホストの `/` は公開ページではない。Googleのcallback設定と共有Cookieの範囲は変更不要。
 
 このREADMEの構築例は `sso.enabled=true`。無効にする場合は明示的にfalseを指定する。
 ルートのbrowser／api／publicポリシーに従い、

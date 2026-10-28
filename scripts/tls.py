@@ -86,7 +86,7 @@ def normalize(config):
         re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in zone.split(".")
     ):
         raise ValueError("tls.cloudflare_zone に Cloudflare の DNS ゾーン名を指定してください")
-    for name in (config["knative_domain"], config["standard_domain"], config["standard_nobuffer_domain"], config["knative_nobuffer_domain"]):
+    for name in (config["knative_domain"], config["standard_domain"], config["standard_nobuffer_domain"], config["knative_nobuffer_domain"], config["knative_public"]):
         if name != zone and not name.endswith("." + zone):
             raise ValueError(f"証明書の対象 {name} が Cloudflare ゾーン {zone} の範囲外です")
     if options["acme_server"] not in (PRODUCTION, STAGING):
@@ -122,6 +122,7 @@ def render(config, output):
         ("standard-nobuffer-tls", [config["standard_nobuffer_domain"], "*." + config["standard_nobuffer_domain"]]),
         ("knative-nobuffer-tls", [config["knative_nobuffer_domain"], "*." + config["knative_nobuffer_domain"]]),
         ("knative-wildcard-tls", [config["knative_domain"], "*." + config["knative_domain"]]),
+        ("knative-public-tls", [config["knative_public"], "*." + config["knative_public"]]),
     ):
         resources.append({
             "apiVersion": "cert-manager.io/v1", "kind": "Certificate",
@@ -359,6 +360,6 @@ def apply_certificates(cluster, config, output, apply_config):
 def wait_certificates(cluster):
     cluster.call("wait", "issuer/cloudflare-letsencrypt", "-n", "test", "--for=condition=Ready", "--timeout=180s")
     print("DNS-01 による証明書発行を待っています（各証明書は最大600秒）。", flush=True)
-    for name in ("standard-tls", "knative-wildcard-tls", "standard-nobuffer-tls", "knative-nobuffer-tls"):
+    for name in ("standard-tls", "knative-wildcard-tls", "standard-nobuffer-tls", "knative-nobuffer-tls", "knative-public-tls"):
         cluster.call("wait", f"certificate/{name}", "-n", "test", "--for=condition=Ready", "--timeout=600s")
     print("証明書の準備ができました。KIC が Secret の更新を Kong に反映します。", flush=True)

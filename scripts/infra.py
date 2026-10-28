@@ -41,6 +41,7 @@ PUBLIC_ROUTES = {
     "standard_nobuffer_domain": {"kind": "standard", "buffering": False, "secret": "standard-nobuffer-tls"},
     "knative_domain": {"kind": "knative", "buffering": True, "secret": "knative-wildcard-tls"},
     "knative_nobuffer_domain": {"kind": "knative", "buffering": False, "secret": "knative-nobuffer-tls"},
+    "knative_public": {"kind": "knative", "buffering": True, "secret": "knative-public-tls"},
 }
 DEFAULT_ROUTES = {"standard": "standard_domain", "knative": "knative_domain"}
 
@@ -85,9 +86,10 @@ def load(path):
             raise ValueError("standard_host と standard_domain は同時に指定できません")
         c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
+    c.setdefault("knative_public", "knative-public." + str(c.get("knative_domain", "")).partition(".")[2])
     required = {"mode", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins"}
+    unknown = set(c) - required - {"base_domain", "knative_public", "tls", "default_routes", "sso", "plugins"}
     if missing or unknown:
         errors = []
         if missing:
@@ -97,7 +99,7 @@ def load(path):
         raise ValueError(" / ".join(errors))
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
-    for key in ("base_domain", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service"):
+    for key in ("base_domain", *PUBLIC_ROUTES, "kourier_service"):
         value = c[key]
         if key == "base_domain" and value is None:
             continue
@@ -106,14 +108,14 @@ def load(path):
             for x in value.split(".")
         ):
             raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    domains = [c[key] for key in ("standard_domain", "knative_domain",
-                                 "standard_nobuffer_domain", "knative_nobuffer_domain")]
-    if len(set(domains)) != 4:
-        raise ValueError("buffer / nobuffer の4ドメインをそれぞれ区別してください")
+    domains = [c[key] for key in PUBLIC_ROUTES]
+    if len(set(domains)) != len(domains):
+        raise ValueError("公開経路のドメインをそれぞれ区別してください")
     for key, prefix in (("standard_domain", "hello-test-ssvc."),
                         ("standard_nobuffer_domain", "hello-test-ssvc."),
                         ("knative_domain", "hello-test-ksvc."),
-                        ("knative_nobuffer_domain", "hello-nobuffer-test-ksvc.")):
+                        ("knative_nobuffer_domain", "hello-nobuffer-test-ksvc."),
+                        ("knative_public", "sso-test-ksvc.")):
         if len(max((prefix, "hello-default-test-ksvc." if key.startswith("knative") else "hello-default-test-ssvc."), key=len) + c[key]) > 253:
             raise ValueError(f"{key}: 公開ホスト名が253文字を超えます")
     port = c["node_port"]
@@ -144,6 +146,7 @@ def configure(path):
         "standard_domain": "通常経路のベースドメイン（hello-test-ssvc を付ける）",
         "standard_nobuffer_domain": "通常 nobuffer のベースドメイン",
         "knative_nobuffer_domain": "Knative nobuffer のベースドメイン",
+        "knative_public": "SSOを要求しないKnative公開ドメイン",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
     }
@@ -186,6 +189,9 @@ def render(c, output):
                   standard_host="hello-test-ssvc." + c["standard_domain"],
                   standard_nobuffer_host="hello-test-ssvc." + c["standard_nobuffer_domain"],
                   knative_nobuffer_host="hello-nobuffer-test-ksvc." + c["knative_nobuffer_domain"])
+    values["knative_public_tls"] = (
+        f'  tls:\n    - hosts: ["*.{c["knative_public"]}"]\n      secretName: knative-public-tls'
+        if c["tls"]["enabled"] else "")
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
@@ -237,6 +243,7 @@ def render(c, output):
     for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))
+    sso.render_portal(c, output)
     tls.render(c, output)
     knative = output / "knative-config"
     knative.mkdir(exist_ok=True)
@@ -582,9 +589,12 @@ def apply_apps(cluster, output):
 
 def wait_apps(cluster, c):
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
-    for name, domain in (("hello", c["knative_domain"]),
-                         ("hello-nobuffer", c["knative_nobuffer_domain"]),
-                         ("hello-default", c[resolve_route(c, "knative")])):
+    services = [("hello", c["knative_domain"]),
+                ("hello-nobuffer", c["knative_nobuffer_domain"]),
+                ("hello-default", c[resolve_route(c, "knative")])]
+    if c["sso"]["enabled"]:
+        services.append(("sso", c["knative_public"]))
+    for name, domain in services:
         cluster.call("wait", "ksvc/" + name, "-n", "test", "--for=condition=Ready", "--timeout=300s")
         expected = "http://" + name + "-test-ksvc." + domain
         deadline = time.monotonic() + 180

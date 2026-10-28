@@ -38,9 +38,9 @@ class FourRouteDomains(unittest.TestCase):
     def test_four_rendered_routes_and_knative_selector(self):
         infra.render(self.load(), self.directory)
         routes = (self.directory / "routes.yaml").read_text()
-        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 4)
+        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 5)
         self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 2)
-        self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 4)
+        self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 5)
         self.assertEqual(routes.count('konghq.com/response-buffering: "false"'), 2)
         for key in ("standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain"):
             self.assertIn(self.config[key], routes)
@@ -82,8 +82,8 @@ class FourRouteDomains(unittest.TestCase):
         infra.render(self.load(), self.directory)
         tls = json.loads((self.directory / "tls.json").read_text())
         certs = [r for r in tls['items'] if r['kind'] == 'Certificate']
-        self.assertEqual(len(certs), 4)
-        expected = {'standard-tls', 'knative-wildcard-tls', 'standard-nobuffer-tls', 'knative-nobuffer-tls'}
+        self.assertEqual(len(certs), 5)
+        expected = {'knative-public-tls', 'standard-tls', 'knative-wildcard-tls', 'standard-nobuffer-tls', 'knative-nobuffer-tls'}
         self.assertEqual({r['metadata']['name'] for r in certs}, expected)
         identities = inventory.python_identities((ROOT / 'scripts/tls.py').read_text(), 'scripts/tls.py')
         for kind in ('Certificate', 'Secret'):

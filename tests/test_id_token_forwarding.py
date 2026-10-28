@@ -67,7 +67,7 @@ class IDTokenForwardingTests(unittest.TestCase):
         self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 4)
 
     def test_all_four_route_ids_are_supported_without_enabling_oauth_endpoints(self):
-        self.raw["sso"]["id_token_routes"] = list(infra.PUBLIC_ROUTES)
+        self.raw["sso"]["id_token_routes"] = [route for route in infra.PUBLIC_ROUTES if route != "knative_public"]
         plugins, _ = self.render()
         self.assertEqual(sum(p["forward_id_token"] for p in plugins.values()), 4)
         self.assertFalse(plugins["sso-oauth-endpoints"]["forward_id_token"])

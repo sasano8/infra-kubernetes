@@ -1,22 +1,5 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.3.0" }
-local login_page = [[<!doctype html>
-<html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SSO ログイン</title></head><body>
-<main><h1>SSO</h1>
-<p>ログインすると、許可されたアプリで認証状態を共有します。</p>
-<form action="/oauth2/start" method="get">
-<input type="hidden" name="rd" value="/">
-<button type="submit">ログイン</button></form>
-<form action="/oauth2/sign_out" method="get">
-<input type="hidden" name="rd" value="/">
-<button type="submit">ログアウト</button></form>
-<p>ログアウトは全アプリ共通のSSOセッションを削除します。
-Googleアカウントからはログアウトしません。</p>
-<p>ログイン後は利用するアプリを開いてください。
-このページは現在のログイン状態を表示しません。</p>
-</main></body></html>]]
+local Handler = { PRIORITY = 1500, VERSION = "1.4.0" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
@@ -28,7 +11,16 @@ end
 function Handler:access(conf)
   local host = kong.request.get_host()
   local allowed = false
-  for _, h in ipairs(conf.hosts) do if h == host then allowed = true end end
+  for _, h in ipairs(conf.hosts) do
+    if h == host then allowed = true end
+    if conf.mode == "public" and h:sub(1, 2) == "*." then
+      local suffix = h:sub(2)
+      if host:sub(-#suffix) == suffix then
+        local label = host:sub(1, #host - #suffix)
+        if label ~= "" and not label:find(".", 1, true) then allowed = true end
+      end
+    end
+  end
   if not allowed then return deny(403) end
   -- Trust only the TLS listener and the matched route, never client forwarding headers.
   if kong.request.get_scheme() ~= "https" then return deny(403) end
@@ -52,14 +44,6 @@ function Handler:access(conf)
   if conf.mode == "oauth" then
     if host ~= conf.auth_host then return deny(403) end
     local path = kong.request.get_path()
-    if path == "/" then
-      return kong.response.exit(200, login_page, {
-        ["Content-Type"] = "text/html; charset=utf-8",
-        ["Cache-Control"] = "no-store",
-        ["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-        ["X-Content-Type-Options"] = "nosniff",
-      })
-    end
     local public = { ["/oauth2/start"]=true, ["/oauth2/callback"]=true,
                      ["/oauth2/sign_in"]=true, ["/oauth2/sign_out"]=true }
     if not public[path] then return deny(404) end

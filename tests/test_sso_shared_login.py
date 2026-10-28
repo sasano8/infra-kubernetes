@@ -43,7 +43,7 @@ class SharedLoginTests(unittest.TestCase):
                          "--cookie-samesite=lax"):
             self.assertIn(argument, args)
         self.assertEqual({arg for arg in args if arg.startswith("--whitelist-domain=")},
-                         {"--whitelist-domain=" + host for host in sso.hosts(config)})
+                         {"--whitelist-domain=" + host for host in sso.hosts(config) + [sso.portal_host(config)]})
         self.assertFalse(any(arg.startswith("--whitelist-domain=.") for arg in args))
 
     def test_generated_cookie_options_match_pinned_upstream_cli(self):
@@ -77,7 +77,7 @@ class SharedLoginTests(unittest.TestCase):
         self.assertEqual([rule["host"] for rule in ingress["spec"]["rules"]], [config["sso"]["auth_host"]])
         paths = ingress["spec"]["rules"][0]["http"]["paths"]
         self.assertEqual([(p["path"], p["pathType"]) for p in paths],
-                         [("/oauth2", "Prefix"), ("/", "Exact")])
+                         [("/oauth2", "Prefix")])
         self.assertEqual(ingress["spec"]["tls"], [{"hosts": [config["sso"]["auth_host"]],
                                                   "secretName": "knative-wildcard-tls"}])
         plugins = [item for item in items if item["kind"] == "KongPlugin"]
@@ -103,13 +103,13 @@ class SharedLoginTests(unittest.TestCase):
         config = self.load()
         for output in ("markdown", "shell"):
             plan = sso.test_plan(config, output)
-            self.assertIn("https://login.knative.example.test:9443/", plan)
+            self.assertIn("https://sso-test-ksvc.knative-public.example.test:9443/", plan)
             if output == "shell":
                 self.assertIn('test "$auth_status" = 200', plan)
             else:
                 self.assertIn("ログイン・ログアウトボタン", plan)
         config["sso"]["enabled"] = False
-        self.assertNotIn("https://login.knative.example.test:9443/", sso.test_plan(config, "markdown"))
+        self.assertNotIn("https://sso-test-ksvc.knative-public.example.test:9443/", sso.test_plan(config, "markdown"))
 
     def test_invalid_auth_host_and_cookie_scope_are_rejected(self):
         bad = (("auth_host", "evil.test"), ("auth_host", "deep.auth.knative.example.test"),

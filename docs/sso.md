@@ -44,7 +44,8 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
     "standard_domain": "browser",
     "standard_nobuffer_domain": "browser",
     "knative_domain": "browser",
-    "knative_nobuffer_domain": "browser"
+    "knative_nobuffer_domain": "browser",
+    "knative_public": "public"
   },
   "api_paths": ["/api", "/upload"],
   "id_token_routes": [],

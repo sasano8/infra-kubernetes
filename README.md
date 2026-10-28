@@ -252,7 +252,8 @@ cat > configs/environment/local.json <<'EOF'
       "standard_domain": "browser",
       "standard_nobuffer_domain": "browser",
       "knative_domain": "browser",
-      "knative_nobuffer_domain": "browser"
+      "knative_nobuffer_domain": "browser",
+      "knative_public": "public"
     }
   },
   "plugins": {
@@ -423,6 +424,7 @@ KongはHTMLを生成せず、認証ホストでは `/oauth2/*` だけをoauth2-p
 認証ホストの `/` は公開ページではない。Googleのcallback設定と共有Cookieの範囲は変更不要。
 
 このREADMEの構築例は `sso.enabled=true`。無効にする場合は明示的にfalseを指定する。
+`sso.routes.knative_public` は省略時も `public`。`browser`／`api`への変更はできない。
 ルートのbrowser／api／publicポリシーに従い、
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
 有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。

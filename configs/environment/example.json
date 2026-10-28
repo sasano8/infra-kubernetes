@@ -1,8 +1,6 @@
 {
   "mode": "new-host",
   "base_domain": "example.test",
-  "knative_domain": "knative.example.test",
-  "standard_domain": "standard.example.test",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -13,8 +11,6 @@
     "acme_server": "https://acme-v02.api.letsencrypt.org/directory",
     "host_https_port": 443
   },
-  "standard_nobuffer_domain": "standard-nobuffer.example.test",
-  "knative_nobuffer_domain": "knative-nobuffer.example.test",
   "default_routes": {
     "standard": "standard_domain",
     "knative": "knative_domain"
@@ -36,5 +32,36 @@
       "enabled": false
     }
   },
-  "knative_public": "knative-public.example.test"
+  "routes": {
+    "standard_domain": {
+      "kind": "standard",
+      "domain": "standard.example.test",
+      "auth": "sso",
+      "buffering": true
+    },
+    "standard_nobuffer_domain": {
+      "kind": "standard",
+      "domain": "standard-nobuffer.example.test",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_domain": {
+      "kind": "knative",
+      "domain": "knative.example.test",
+      "auth": "sso",
+      "buffering": true
+    },
+    "knative_nobuffer_domain": {
+      "kind": "knative",
+      "domain": "knative-nobuffer.example.test",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.example.test",
+      "auth": "public",
+      "buffering": true
+    }
+  }
 }

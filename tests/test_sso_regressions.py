@@ -52,7 +52,7 @@ class SSORegressionTests(unittest.TestCase):
         return infra.load(path)
 
     def test_missing_enabled_never_disables_installed_sso(self):
-        for payload in (OMITTED, {}, {"email_domain": "example.test"}, {"routes": {"standard_domain": "api"}}):
+        for payload in (OMITTED, {}, {"email_domain": "example.test"}, {"cookie_expire_hours": 24}):
             with self.subTest(payload="omitted" if payload is OMITTED else payload):
                 cluster = InstalledCluster(installed=True)
                 config = self.config(payload)
@@ -91,8 +91,9 @@ class SSORegressionTests(unittest.TestCase):
                     self.config({"enabled": enabled, "email_domain": "example.test"})
 
     def plan_config(self, enabled, mode, api_paths):
-        return self.config({"enabled": enabled, "email_domain": "example.test",
-                            "routes": {route: mode for route in ROUTE_IDS}, "api_paths": api_paths})
+        for route in ROUTE_IDS:
+            self.base["routes"][route]["auth"] = mode
+        return self.config({"enabled": enabled, "email_domain": "example.test", "api_paths": api_paths})
 
     def test_sso_get_plan_respects_api_path_and_exact_prefix_boundaries(self):
         for api_paths, expected in ((["/get"], "401"), (["/ge"], "302"), (["/getter"], "302"),

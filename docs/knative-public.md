@@ -10,11 +10,18 @@
 
 ```json
 {
-  "knative_public": "knative-public.backoffice.ys-method-dev.com"
+  "routes": {
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.backoffice.ys-method-dev.com",
+      "auth": "public",
+      "buffering": true
+    }
+  }
 }
 ```
 
-省略時は `knative_domain` の先頭ラベルを `knative-public` に置き換えたドメインになる。
+`routes.knative_public` の全項目を明示する。ドメインの自動補完は行わない。
 既存4経路と異なるドメインで、TLSのCloudflare zoneとSSO Cookieの共有範囲内に配置する。
 Cloudflareに次のAレコードをDNS onlyで追加し、Kongホストの公開IPを指定する。
 
@@ -56,7 +63,7 @@ spec:
 ```
 
 公開URLは `https://example-test-ksvc.knative-public.backoffice.ys-method-dev.com/`。
-アプリごとのKong設定は不要。`sso.routes`でsso／apiへ変更したり、IDトークン転送を有効にしたりはできない。
+アプリごとのKong設定は不要。`routes.knative_public.auth`をsso／apiへ変更したり、IDトークン転送を有効にしたりはできない。
 SSO有効時も未認証でアプリへ到達する。Kongは共有SSO Cookieと外部からのidentityヘッダーをアプリへ渡さない。
 
 ## ログイン・ログアウト画面

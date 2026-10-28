@@ -47,8 +47,9 @@ class IDTokenForwardingTests(unittest.TestCase):
         self.raw["sso"].update(
             id_token_routes=["standard_domain", "knative_nobuffer_domain"],
             id_token_header="X-SSO-Identity",
-            routes={"knative_nobuffer_domain": "api", "knative_domain": "public"},
         )
+        self.raw["routes"]["knative_nobuffer_domain"]["auth"] = "api"
+        self.raw["routes"]["knative_domain"]["auth"] = "public"
         self.raw["default_routes"] = {
             "standard": "standard_nobuffer_domain", "knative": "knative_nobuffer_domain"
         }
@@ -83,7 +84,8 @@ class IDTokenForwardingTests(unittest.TestCase):
                     self.config()
 
     def test_public_route_cannot_request_an_id_token(self):
-        self.raw["sso"].update(id_token_routes=["standard_domain"], routes={"standard_domain": "public"})
+        self.raw["sso"].update(id_token_routes=["standard_domain"])
+        self.raw["routes"]["standard_domain"]["auth"] = "public"
         with self.assertRaisesRegex(ValueError, "public"):
             self.config()
 

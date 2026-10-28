@@ -18,13 +18,26 @@ Kongの既存 `standard`／`hello` Ingressはbuffer有効に戻し、追加す�
 
 ## 設定とDNS
 
-4ドメインはすべて必須で、互いに異なる小文字DNS名を指定する。`base_domain`からの
-暗黙的な補完はしない。既存local.jsonには次の2項目を明示的に追加する。
+`routes`には、この4経路と `knative_public` の5経路をすべて指定する。
+各 `domain` は互いに異なる小文字DNS名とし、自動補完はしない。次はnobuffer経路の抜粋。
+完全な設定と移行先は [公開経路の設定](route-configuration.md)を参照。
 
 ```json
 {
-  "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
-  "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com"
+  "routes": {
+    "standard_nobuffer_domain": {
+      "kind": "standard",
+      "domain": "standard-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_nobuffer_domain": {
+      "kind": "knative",
+      "domain": "knative-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    }
+  }
 }
 ```
 
@@ -39,7 +52,8 @@ DNSでは4経路の実ホスト、または次のワイルドカードをKongホ
 - `*.knative-nobuffer.tmp.ys-method-dev.com`
 
 CloudflareはDNS onlyを使用する。HTTPS時は4ドメインとも `tls.cloudflare_zone` 内である必要がある。
-各ドメインとワイルドカードを対象に計4つのCertificateを生成し、Readyを待つ。
+各ドメインとワイルドカードを対象にCertificateを生成し、Readyを待つ。
+`knative_public`用も含めて計5つになる。
 認証用トークンは既存のSecret供給方式を維持する。
 
 ## 公開ルートの選択と特性の責任分界
@@ -61,7 +75,8 @@ metadata:
 
 アプリのラベルは公開先を選ぶだけであり、bufferingの真偽を指示しない。
 ドメイン・buffering・TLS・タイムアウトなどはインフラのルート定義が決める。
-ルートの種別・buffering・TLS Secretの対応は `scripts/infra.py` の `PUBLIC_ROUTES` に定義し、
+ルートの種別・ドメイン・認証・bufferingはトップレベルの `routes` に定義する。
+TLS Secret名とサポートする経路ID・種別は実装側で固定し、
 Kong Ingressへ生成する。バックエンドのタイムアウトはService定義が持つ。
 ルートIDにnobufferを含む現行命名は、その特性をアプリAPIとして固定するものではない。
 将来の別特性もルート定義側で扱う。

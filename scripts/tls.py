@@ -86,7 +86,7 @@ def normalize(config):
         re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in zone.split(".")
     ):
         raise ValueError("tls.cloudflare_zone に Cloudflare の DNS ゾーン名を指定してください")
-    for name in (config["knative_domain"], config["standard_domain"], config["standard_nobuffer_domain"], config["knative_nobuffer_domain"], config["knative_public"]):
+    for name in (config["routes"]["knative_domain"]["domain"], config["routes"]["standard_domain"]["domain"], config["routes"]["standard_nobuffer_domain"]["domain"], config["routes"]["knative_nobuffer_domain"]["domain"], config["routes"]["knative_public"]["domain"]):
         if name != zone and not name.endswith("." + zone):
             raise ValueError(f"証明書の対象 {name} が Cloudflare ゾーン {zone} の範囲外です")
     if options["acme_server"] not in (PRODUCTION, STAGING):
@@ -118,11 +118,11 @@ def render(config, output):
     }
     resources = [issuer]
     for name, domains in (
-        ("standard-tls", [config["standard_domain"], "*." + config["standard_domain"]]),
-        ("standard-nobuffer-tls", [config["standard_nobuffer_domain"], "*." + config["standard_nobuffer_domain"]]),
-        ("knative-nobuffer-tls", [config["knative_nobuffer_domain"], "*." + config["knative_nobuffer_domain"]]),
-        ("knative-wildcard-tls", [config["knative_domain"], "*." + config["knative_domain"]]),
-        ("knative-public-tls", [config["knative_public"], "*." + config["knative_public"]]),
+        ("standard-tls", [config["routes"]["standard_domain"]["domain"], "*." + config["routes"]["standard_domain"]["domain"]]),
+        ("standard-nobuffer-tls", [config["routes"]["standard_nobuffer_domain"]["domain"], "*." + config["routes"]["standard_nobuffer_domain"]["domain"]]),
+        ("knative-nobuffer-tls", [config["routes"]["knative_nobuffer_domain"]["domain"], "*." + config["routes"]["knative_nobuffer_domain"]["domain"]]),
+        ("knative-wildcard-tls", [config["routes"]["knative_domain"]["domain"], "*." + config["routes"]["knative_domain"]["domain"]]),
+        ("knative-public-tls", [config["routes"]["knative_public"]["domain"], "*." + config["routes"]["knative_public"]["domain"]]),
     ):
         resources.append({
             "apiVersion": "cert-manager.io/v1", "kind": "Certificate",

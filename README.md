@@ -221,6 +221,8 @@ make install-helm
 ```
 
 HTTPS・Google Workspace SSO・Argo CD・Infisical・pinnerを有効にした設定ファイルを配置する。
+経路ごとのドメイン・認証・bufferingはトップレベルの `routes` にまとめる。
+旧形式の設定を使っている場合は [公開経路の設定と移動先](docs/route-configuration.md)を参照して書き換える。互換読み込みは行わない。
 `tls.email` は連絡先、`sso.email_domain` はログインを許可するWorkspaceのメールドメインに変更する。
 
 ```bash
@@ -228,11 +230,6 @@ cat > configs/environment/local.json <<'EOF'
 {
   "mode": "new-host",
   "base_domain": "tmp.ys-method-dev.com",
-  "knative_domain": "knative.tmp.ys-method-dev.com",
-  "standard_domain": "standard.tmp.ys-method-dev.com",
-  "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
-  "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
-  "knative_public": "knative-public.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -247,19 +244,50 @@ cat > configs/environment/local.json <<'EOF'
     "auth_host": "auth.knative.tmp.ys-method-dev.com",
     "cookie_domain": "tmp.ys-method-dev.com",
     "cookie_expire_hours": 72,
-    "secret_file": ".local/secrets/google-sso.json",
-    "routes": {
-      "standard_domain": "sso",
-      "standard_nobuffer_domain": "sso",
-      "knative_domain": "sso",
-      "knative_nobuffer_domain": "sso",
-      "knative_public": "public"
-    }
+    "secret_file": ".local/secrets/google-sso.json"
   },
   "plugins": {
-    "argocd": {"enabled": true},
-    "infisical": {"enabled": true},
-    "pinner": {"enabled": true}
+    "argocd": {
+      "enabled": true
+    },
+    "infisical": {
+      "enabled": true
+    },
+    "pinner": {
+      "enabled": true
+    }
+  },
+  "routes": {
+    "standard_domain": {
+      "kind": "standard",
+      "domain": "standard.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": true
+    },
+    "standard_nobuffer_domain": {
+      "kind": "standard",
+      "domain": "standard-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_domain": {
+      "kind": "knative",
+      "domain": "knative.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": true
+    },
+    "knative_nobuffer_domain": {
+      "kind": "knative",
+      "domain": "knative-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.tmp.ys-method-dev.com",
+      "auth": "public",
+      "buffering": true
+    }
   }
 }
 EOF
@@ -424,8 +452,8 @@ KongはHTMLを生成せず、認証ホストでは `/oauth2/*` だけをoauth2-p
 認証ホストの `/` は公開ページではない。Googleのcallback設定と共有Cookieの範囲は変更不要。
 
 このREADMEの構築例は `sso.enabled=true`。無効にする場合は明示的にfalseを指定する。
-`sso.routes.knative_public` は省略時も `public`。`sso`／`api`への変更はできない。
-ルートのsso／api／publicポリシーに従い、
+`routes.knative_public.auth` は `public` を指定する。`sso`／`api`への変更はできない。
+`routes.<経路ID>.auth` のsso／api／publicポリシーに従い、
 Kongの認証確認後に本文をアプリへ転送する。buffer／nobuffer設定は独立して維持する。
 有効時はHTTPS・許可メールドメイン・Google OAuth／Cookie用Secretが必要。
 Googleのログイン後は共通callbackへ戻り、Kongがoauth2-proxyへ転送する。

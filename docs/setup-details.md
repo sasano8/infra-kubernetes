@@ -72,7 +72,7 @@ Release マニフェストは HTTPS で取得し、k0s バイナリは SHA-256 �
 
 ## 既存クラスタに追加
 
-設定の `mode` を `existing` にし、`knative_domain` を既存 Knative のドメインに合わせる。
+設定の `mode` を `existing` にし、`routes.knative_domain.domain` を既存 Knative のドメインに合わせる。
 `kourier_service` は **外部向け HTTP listener（80番）を持つ** Kourier Service の
 クラスタ内 DNS 名にする。`kourier-internal` には向けない。
 Knative の上記 domain-template、HTTP、スケールゼロが有効な環境を前提にする。
@@ -94,10 +94,9 @@ domain-template が前提と異なれば停止し、自動修正しない。
 | --- | --- |
 | `mode` | `new-host` / `existing` |
 | `base_domain` | 任意の共通ベースドメイン。省略 / null 可。参照情報であり DNS やルーティングは設定しない |
-| `knative_domain` | Knative ドメイン。新規構築時は config-domain に設定 |
-| `standard_domain` | 通常bufferのベースドメイン。公開名は `hello-test-ssvc.<standard_domain>` |
-| `standard_nobuffer_domain` | 通常nobufferのベースドメイン（必須） |
-| `knative_nobuffer_domain` | Knative nobufferのベースドメイン（必須） |
+| `routes` | 5経路の定義。各経路に `kind`・`domain`・`auth`・`buffering` を指定 |
+| `default_routes` | 通常／Knativeの既定経路ID |
+| `sso` | Google認証・共有Cookie・Secretなどの共通設定。経路の認証方式は `routes` に置く |
 | `kourier_service` | Kong から接続する Kourier の DNS 名 |
 | `node_port` | `null` なら非公開。必要なら 30000〜32767 |
 | `tls` | 省略時は無効。Cloudflare DNS-01・証明書更新・Kong の HTTPS 公開設定。詳細は [HTTPS](https.md) |
@@ -214,10 +213,10 @@ Docker、Argo CD、Vault などは最小検証に含めない。
 - [Kong Route / preserve_host](https://developer.konghq.com/gateway/entities/route/)
 
 各経路は個別指定し、`base_domain` からの自動生成やサブドメインの強制はしない。
-旧 `domain` は `knative_domain` の別名として使用可能。同時指定はエラー。
+各経路の `routes.<経路ID>.domain` を指定する。旧トップレベルのドメイン項目や別名は受け付けない。
 既存設定に `base_domain` を追加する必要はない。
 
-旧 `standard_host` は `standard_domain` の別名として使用可能。同時指定はエラー。
+設定構造と旧形式からの移動先は [公開経路の設定](route-configuration.md)を参照。
 公開名は通常経路が `hello-test-ssvc.<standard_domain>`、Knative が
 `hello-test-ksvc.<knative_domain>`。通常リソース名は `hello-ssvc`、Knative は `test/hello`。
 

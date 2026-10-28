@@ -39,14 +39,14 @@ class SSOConfiguration(unittest.TestCase):
 
     def test_sso_is_rendered_and_old_browser_value_is_rejected(self):
         raw = json.loads(self.path.read_text())
-        raw['sso']['routes'] = {'standard_domain': 'sso'}
+        raw['routes']['standard_domain']['auth'] = 'sso'
         self.path.write_text(json.dumps(raw))
         config = infra.load(self.path)
         infra.render(config, self.directory)
         items = json.loads((self.directory / 'sso.json').read_text())['items']
         plugin = next(i for i in items if i['metadata']['name'] == 'sso-standard-domain')
         self.assertEqual(plugin['config']['mode'], 'sso')
-        raw['sso']['routes'] = {'standard_domain': 'browser'}
+        raw['routes']['standard_domain']['auth'] = 'browser'
         self.path.write_text(json.dumps(raw))
         with self.assertRaisesRegex(ValueError, 'sso / api / public'):
             infra.load(self.path)

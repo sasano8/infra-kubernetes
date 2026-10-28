@@ -37,27 +37,27 @@ MANIFESTS = {
 
 
 PUBLIC_ROUTES = {
-    "standard_domain": {"kind": "standard", "buffering": True, "secret": "standard-tls"},
-    "standard_nobuffer_domain": {"kind": "standard", "buffering": False, "secret": "standard-nobuffer-tls"},
-    "knative_domain": {"kind": "knative", "buffering": True, "secret": "knative-wildcard-tls"},
-    "knative_nobuffer_domain": {"kind": "knative", "buffering": False, "secret": "knative-nobuffer-tls"},
-    "knative_public": {"kind": "knative", "buffering": True, "secret": "knative-public-tls"},
+    "standard_domain": {"kind": "standard", "secret": "standard-tls"},
+    "standard_nobuffer_domain": {"kind": "standard", "secret": "standard-nobuffer-tls"},
+    "knative_domain": {"kind": "knative", "secret": "knative-wildcard-tls"},
+    "knative_nobuffer_domain": {"kind": "knative", "secret": "knative-nobuffer-tls"},
+    "knative_public": {"kind": "knative", "secret": "knative-public-tls"},
 }
 DEFAULT_ROUTES = {"standard": "standard_domain", "knative": "knative_domain"}
 
 
 def resolve_route(config, kind, explicit=None):
     route = config["default_routes"][kind] if explicit is None else explicit
-    if not isinstance(route, str) or route not in PUBLIC_ROUTES or PUBLIC_ROUTES[route]["kind"] != kind:
+    if not isinstance(route, str) or route not in PUBLIC_ROUTES or config["routes"][route]["kind"] != kind:
         raise ValueError(f"{kind}: 有効な同種別の公開ルートIDを指定してください（無効化は未対応）")
     return route
 
 
 def knative_domain_data(config):
     default = resolve_route(config, "knative")
-    return {config[route]: ("" if route == default else
+    return {config["routes"][route]["domain"]: ("" if route == default else
             "selector:\n  infra.sasano8.dev/route: " + route + "\n")
-            for route in PUBLIC_ROUTES if PUBLIC_ROUTES[route]["kind"] == "knative"}
+            for route in config["routes"] if config["routes"][route]["kind"] == "knative"}
 
 
 def run(args, **kwargs):
@@ -77,19 +77,10 @@ def load(path):
     c = json.loads(path.read_text(), object_pairs_hook=unique_fields)
     if not isinstance(c, dict):
         raise ValueError("設定ファイルのルートは JSON オブジェクトにしてください")
-    if "domain" in c:
-        if "knative_domain" in c:
-            raise ValueError("domain と knative_domain は同時に指定できません")
-        c["knative_domain"] = c.pop("domain")
-    if "standard_host" in c:
-        if "standard_domain" in c:
-            raise ValueError("standard_host と standard_domain は同時に指定できません")
-        c["standard_domain"] = c.pop("standard_host")
     c.setdefault("base_domain", None)
-    c.setdefault("knative_public", "knative-public." + str(c.get("knative_domain", "")).partition(".")[2])
-    required = {"mode", "knative_domain", "standard_domain", "standard_nobuffer_domain", "knative_nobuffer_domain", "kourier_service", "node_port"}
+    required = {"mode", "routes", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "knative_public", "tls", "default_routes", "sso", "plugins"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins"}
     if missing or unknown:
         errors = []
         if missing:
@@ -99,25 +90,35 @@ def load(path):
         raise ValueError(" / ".join(errors))
     if c["mode"] not in ("new-host", "existing"):
         raise ValueError("mode は new-host / existing")
-    for key in ("base_domain", *PUBLIC_ROUTES, "kourier_service"):
-        value = c[key]
-        if key == "base_domain" and value is None:
-            continue
+    def dns_name(value, label):
         if not isinstance(value, str) or len(value) > 253 or not all(
             re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", x)
             for x in value.split(".")
         ):
-            raise ValueError(f"{key}: 小文字の DNS 名を指定してください")
-    domains = [c[key] for key in PUBLIC_ROUTES]
+            raise ValueError(f"{label}: 小文字の DNS 名を指定してください")
+    if c["base_domain"] is not None:
+        dns_name(c["base_domain"], "base_domain")
+    dns_name(c["kourier_service"], "kourier_service")
+    if not isinstance(c["routes"], dict) or set(c["routes"]) != set(PUBLIC_ROUTES):
+        raise ValueError("routesには5つの公開経路IDを指定してください: " + ", ".join(PUBLIC_ROUTES))
+    for route_id, route in c["routes"].items():
+        label = "routes." + route_id
+        if not isinstance(route, dict) or set(route) != {"kind", "domain", "auth", "buffering"}:
+            raise ValueError(label + " は kind / domain / auth / buffering を指定してください")
+        if route["kind"] != PUBLIC_ROUTES[route_id]["kind"]:
+            raise ValueError(label + ".kind: " + PUBLIC_ROUTES[route_id]["kind"] + "を指定してください")
+        dns_name(route["domain"], label + ".domain")
+        if len("hello-nobuffer-test-ksvc." + route["domain"]) > 253:
+            raise ValueError(label + ".domain: 公開ホスト名が253文字を超えます")
+        if route["auth"] not in ("sso", "api", "public"):
+            raise ValueError(label + ".auth は sso / api / public を指定してください")
+        if type(route["buffering"]) is not bool:
+            raise ValueError(label + ".buffering は true / false を指定してください")
+    if c["routes"]["knative_public"]["auth"] != "public":
+        raise ValueError("knative_public はpublic専用経路です")
+    domains = [route["domain"] for route in c["routes"].values()]
     if len(set(domains)) != len(domains):
         raise ValueError("公開経路のドメインをそれぞれ区別してください")
-    for key, prefix in (("standard_domain", "hello-test-ssvc."),
-                        ("standard_nobuffer_domain", "hello-test-ssvc."),
-                        ("knative_domain", "hello-test-ksvc."),
-                        ("knative_nobuffer_domain", "hello-nobuffer-test-ksvc."),
-                        ("knative_public", "sso-test-ksvc.")):
-        if len(max((prefix, "hello-default-test-ksvc." if key.startswith("knative") else "hello-default-test-ssvc."), key=len) + c[key]) > 253:
-            raise ValueError(f"{key}: 公開ホスト名が253文字を超えます")
     port = c["node_port"]
     if port is not None and (type(port) is not int or not 30000 <= port <= 32767):
         raise ValueError("node_port は null または 30000〜32767")
@@ -130,7 +131,7 @@ def load(path):
     for kind in DEFAULT_ROUTES:
         resolve_route(c, kind)
     tls.normalize(c)
-    sso.normalize(c, PUBLIC_ROUTES)
+    sso.normalize(c)
     platform_plugins.normalize(c)
     return c
 
@@ -142,11 +143,6 @@ def configure(path):
     prompts = {
         "mode": "新規 VM=new-host / 既存クラスタ=existing",
         "base_domain": "ベースドメイン（参照情報。各経路は個別指定）",
-        "knative_domain": "Knative ドメイン（既存の場合は既存設定に合わせる）",
-        "standard_domain": "通常経路のベースドメイン（hello-test-ssvc を付ける）",
-        "standard_nobuffer_domain": "通常 nobuffer のベースドメイン",
-        "knative_nobuffer_domain": "Knative nobuffer のベースドメイン",
-        "knative_public": "SSOを要求しないKnative公開ドメイン",
         "kourier_service": "Kourier のクラスタ内 Service DNS 名",
         "node_port": "Kong NodePort（空欄なら非公開、port-forward 使用）",
     }
@@ -154,8 +150,20 @@ def configure(path):
         answer = input(f"{prompt} [{c[key] if c[key] is not None else 'なし'}]: ").strip()
         if answer:
             c[key] = int(answer) if key == "node_port" else answer
+    for route_id, route in c["routes"].items():
+        domain = input(f"{route_id} のドメイン [{route['domain']}]: ").strip()
+        if domain:
+            route["domain"] = domain
+        auth = input(f"{route_id} の認証 sso / api / public [{route['auth']}]: ").strip()
+        if auth:
+            route["auth"] = auth
+        buffering = input(f"{route_id} のbuffering true / false [{str(route['buffering']).lower()}]: ").strip()
+        if buffering not in ("", "true", "false"):
+            raise ValueError("buffering は true / false")
+        if buffering:
+            route["buffering"] = buffering == "true"
     for kind in DEFAULT_ROUTES:
-        choices = [route for route in PUBLIC_ROUTES if PUBLIC_ROUTES[route]["kind"] == kind]
+        choices = [route for route, definition in c["routes"].items() if definition["kind"] == kind]
         answer = input(f"{kind} の既定公開ルート ({', '.join(choices)}) [{c['default_routes'][kind]}]: ").strip()
         if answer:
             c["default_routes"][kind] = answer
@@ -169,7 +177,7 @@ def configure(path):
             c["tls"][field] = input(prompt + ": ").strip()
         c["sso"]["email_domain"] = input("SSO_EMAIL_DOMAIN（許可メールドメイン）: ").strip()
         c["sso"]["secret_file"] = input("SSO Secret JSONファイル（既存Secretなら空欄）: ").strip()
-        c["sso"]["auth_host"] = input("認証専用ホスト [auth." + c["knative_domain"] + "]: ").strip()
+        c["sso"]["auth_host"] = input("認証専用ホスト [auth." + c["routes"]["knative_domain"]["domain"] + "]: ").strip()
         c["sso"]["cookie_domain"] = input("Cookie共有親ドメイン [" + (c["base_domain"] or "4経路の共通親ドメイン") + "]: ").strip()
     # Validate before creating the destination.
     with tempfile.TemporaryDirectory() as tmp:
@@ -185,12 +193,16 @@ def configure(path):
 def render(c, output):
     output.mkdir(parents=True, exist_ok=True)
     platform_plugins.render(c, output)
-    values = dict(c, knative_host="hello-test-ksvc." + c["knative_domain"],
-                  standard_host="hello-test-ssvc." + c["standard_domain"],
-                  standard_nobuffer_host="hello-test-ssvc." + c["standard_nobuffer_domain"],
-                  knative_nobuffer_host="hello-nobuffer-test-ksvc." + c["knative_nobuffer_domain"])
+    values = dict(c)
+    values.update({key: route["domain"] for key, route in c["routes"].items()})
+    values.update(
+        knative_host="hello-test-ksvc." + c["routes"]["knative_domain"]["domain"],
+        standard_host="hello-test-ssvc." + c["routes"]["standard_domain"]["domain"],
+        standard_nobuffer_host="hello-test-ssvc." + c["routes"]["standard_nobuffer_domain"]["domain"],
+        knative_nobuffer_host="hello-nobuffer-test-ksvc." + c["routes"]["knative_nobuffer_domain"]["domain"],
+    )
     values["knative_public_tls"] = (
-        f'  tls:\n    - hosts: ["*.{c["knative_public"]}"]\n      secretName: knative-public-tls'
+        f'  tls:\n    - hosts: ["*.{c["routes"]["knative_public"]["domain"]}"]\n      secretName: knative-public-tls'
         if c["tls"]["enabled"] else "")
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
@@ -208,7 +220,7 @@ def render(c, output):
         secret = route.replace("_", "-") + "-tls"
         values[route + "_tls"] = (f"  tls:\n    - hosts: [{values[route + '_host']}]\n      secretName: {secret}"
                                  if c["tls"]["enabled"] else "")
-    for route, definition in PUBLIC_ROUTES.items():
+    for route, definition in c["routes"].items():
         prefix = route.removesuffix("_domain")
         values[prefix + "_buffering"] = str(definition["buffering"]).lower()
     domains = knative_domain_data(c)
@@ -217,14 +229,14 @@ def render(c, output):
     for kind, prefix in (("standard", "hello-default-test-ssvc."),
                          ("knative", "hello-default-test-ksvc.")):
         route = resolve_route(c, kind)
-        definition = PUBLIC_ROUTES[route]
-        host = prefix + c[route]
+        definition = dict(c["routes"][route], secret=PUBLIC_ROUTES[route]["secret"])
+        host = prefix + c["routes"][route]["domain"]
         values[kind + "_default_host"] = host
         values[kind + "_default_buffering"] = str(definition["buffering"]).lower()
         values[kind + "_default_tls"] = (
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
-    auth = sso.render(c, output, PUBLIC_ROUTES)
+    auth = sso.render(c, output, c["routes"])
     for route in PUBLIC_ROUTES:
         values[route.removesuffix("_domain") + "_auth"] = auth.get(route, '    konghq.com/plugins: ""')
     for kind in ("standard", "knative"):
@@ -589,11 +601,11 @@ def apply_apps(cluster, output):
 
 def wait_apps(cluster, c):
     cluster.call("rollout", "status", "deployment/hello-ssvc", "-n", "test", "--timeout=300s")
-    services = [("hello", c["knative_domain"]),
-                ("hello-nobuffer", c["knative_nobuffer_domain"]),
-                ("hello-default", c[resolve_route(c, "knative")])]
+    services = [("hello", c["routes"]["knative_domain"]["domain"]),
+                ("hello-nobuffer", c["routes"]["knative_nobuffer_domain"]["domain"]),
+                ("hello-default", c["routes"][resolve_route(c, "knative")]["domain"])]
     if c["sso"]["enabled"]:
-        services.append(("sso", c["knative_public"]))
+        services.append(("sso", c["routes"]["knative_public"]["domain"]))
     for name, domain in services:
         cluster.call("wait", "ksvc/" + name, "-n", "test", "--for=condition=Ready", "--timeout=300s")
         expected = "http://" + name + "-test-ksvc." + domain

@@ -25,10 +25,9 @@ class KnativePublicTests(unittest.TestCase):
         path.write_text(json.dumps(self.raw))
         return infra.load(path)
 
-    def test_old_config_defaults_public_domain_and_preserves_callback(self):
-        del self.raw["knative_public"]
+    def test_public_route_is_explicit_and_preserves_callback(self):
         config = self.load()
-        self.assertEqual(config["knative_public"], "knative-public.example.test")
+        self.assertEqual(config["routes"]["knative_public"]["domain"], "knative-public.example.test")
         self.assertEqual(config["sso"]["auth_host"], "auth.knative.example.test")
         self.assertEqual(config["sso"]["cookie_domain"], "example.test")
 
@@ -65,10 +64,10 @@ class KnativePublicTests(unittest.TestCase):
         self.assertNotIn("<!doctype html>", handler)
 
     def test_public_policy_and_token_forwarding_cannot_be_overridden(self):
-        self.raw["sso"]["routes"] = {"knative_public": "sso"}
+        self.raw["routes"]["knative_public"]["auth"] = "sso"
         with self.assertRaisesRegex(ValueError, "public専用"):
             self.load()
-        self.raw["sso"]["routes"] = {}
+        self.raw["routes"]["knative_public"]["auth"] = "public"
         self.raw["sso"]["id_token_routes"] = ["knative_public"]
         with self.assertRaisesRegex(ValueError, "public"):
             self.load()
@@ -85,6 +84,6 @@ class KnativePublicTests(unittest.TestCase):
         certificate = next(i for i in items if i["metadata"]["name"] == "knative-public-tls")
         self.assertEqual(certificate["spec"]["dnsNames"],
                          ["knative-public.example.test", "*.knative-public.example.test"])
-        self.raw["knative_public"] = "public.other.test"
+        self.raw["routes"]["knative_public"]["domain"] = "public.other.test"
         with self.assertRaisesRegex(ValueError, "範囲外"):
             self.load()

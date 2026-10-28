@@ -129,9 +129,9 @@ class SharedLoginTests(unittest.TestCase):
 
     def test_unrelated_route_domains_cannot_silently_lose_shared_sessions(self):
         config = self.load()
-        config["standard_domain"] = "standard.other.test"
+        config["routes"]["standard_domain"]["domain"] = "standard.other.test"
         with self.assertRaisesRegex(ValueError, "cookie_domain"):
-            sso.normalize(config, infra.PUBLIC_ROUTES)
+            sso.normalize(config)
 
     def test_callback_change_does_not_change_buffering_or_application_hosts(self):
         config = self.load()

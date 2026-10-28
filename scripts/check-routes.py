@@ -50,14 +50,14 @@ def main():
     if config["sso"]["enabled"] and not args.internal:
         parser.error("SSO有効時は --internal standard / knative で内部のみ診断し、test-planで外部SSOを別途確認してください")
     cases = [
-        ("standard-buffer", "hello-test-ssvc." + config["standard_domain"], None),
-        ("standard-nobuffer", "hello-test-ssvc." + config["standard_nobuffer_domain"], None),
-        ("knative-buffer", "hello-test-ksvc." + config["knative_domain"], "hello"),
-        ("knative-nobuffer", "hello-nobuffer-test-ksvc." + config["knative_nobuffer_domain"], "hello-nobuffer"),
+        ("standard-buffer", "hello-test-ssvc." + config["routes"]["standard_domain"]["domain"], None),
+        ("standard-nobuffer", "hello-test-ssvc." + config["routes"]["standard_nobuffer_domain"]["domain"], None),
+        ("knative-buffer", "hello-test-ksvc." + config["routes"]["knative_domain"]["domain"], "hello"),
+        ("knative-nobuffer", "hello-nobuffer-test-ksvc." + config["routes"]["knative_nobuffer_domain"]["domain"], "hello-nobuffer"),
     ]
     cases.extend([
-        ("standard-default", "hello-default-test-ssvc." + config[infra.resolve_route(config, "standard")], None),
-        ("knative-default", "hello-default-test-ksvc." + config[infra.resolve_route(config, "knative")], "hello-default"),
+        ("standard-default", "hello-default-test-ssvc." + config["routes"][infra.resolve_route(config, "standard")]["domain"], None),
+        ("knative-default", "hello-default-test-ksvc." + config["routes"][infra.resolve_route(config, "knative")]["domain"], "hello-default"),
     ])
     if args.internal:
         cases = [case for case in cases if case[0].startswith(args.internal)]

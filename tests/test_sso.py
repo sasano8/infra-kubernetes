@@ -83,7 +83,8 @@ class SSOTests(unittest.TestCase):
         sso.preflight(c,None)
 
     def test_public_api_policies_do_not_change_buffering(self):
-        self.c['sso']['routes']={'standard_domain':'public','knative_nobuffer_domain':'api'}
+        self.c['routes']['standard_domain']['auth']='public'
+        self.c['routes']['knative_nobuffer_domain']['auth']='api'
         c=self.config();infra.render(c,self.path)
         plugins=[x for x in json.loads((self.path/'sso.json').read_text())['items'] if x['kind']=='KongPlugin']
         self.assertEqual(next(p['config']['mode'] for p in plugins if p['metadata']['name']=='sso-standard-domain'),'public')
@@ -118,7 +119,8 @@ class SSOTests(unittest.TestCase):
 
     def test_external_plan_is_port_aware_and_contains_no_credentials(self):
         self.fixture_secret();self.c['tls']['host_https_port']=9443
-        self.c['sso']['routes']={'standard_domain':'public','knative_domain':'api'}
+        self.c['routes']['standard_domain']['auth']='public'
+        self.c['routes']['knative_domain']['auth']='api'
         c=self.config();plan=sso.test_plan(c,'shell')
         self.assertIn(':9443/get',plan);self.assertIn('"$status" = 401',plan)
         self.assertIn('"$status" = 302',plan);self.assertIn('"$status" = 200',plan)
@@ -150,7 +152,7 @@ class SSOTests(unittest.TestCase):
                 def get(self,name,*args):
                     if name=='configmap/config-network': return {'data':{'domain-template':infra.TEMPLATE}}
                     name=name.removeprefix('ksvc/')
-                    domain=c['knative_public'] if name=='sso' else c['knative_nobuffer_domain'] if name=='hello-nobuffer' else c[c['default_routes']['knative']] if name=='hello-default' else c['knative_domain']
+                    domain=c["routes"]["knative_public"]["domain"] if name=='sso' else c["routes"]["knative_nobuffer_domain"]["domain"] if name=='hello-nobuffer' else c['routes'][c['default_routes']['knative']]['domain'] if name=='hello-default' else c["routes"]["knative_domain"]["domain"]
                     return {'status':{'url':'http://'+name+'-test-ksvc.'+domain,'conditions':[{'type':'Ready','status':'True'}]}}
                 def call(self,*args,**kwargs):
                     calls.append(args)

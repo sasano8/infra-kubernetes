@@ -20,7 +20,7 @@ OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
 SECRET = "google-sso"
 KEYS = ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET")
 ID_TOKEN_HEADER = "X-Forwarded-Id-Token"
-DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "routes": {}, "api_paths": ["/api", "/upload"],
+DEFAULTS = {"enabled": False, "email_domain": "", "secret_file": "", "api_paths": ["/api", "/upload"],
             "id_token_routes": [], "id_token_header": ID_TOKEN_HEADER, "auth_host": "", "cookie_domain": "",
             "cookie_expire_hours": 72}
 COOKIE_NAME = "__Secure-infra_sso"
@@ -32,7 +32,7 @@ def origin(c):
 
 
 def portal_host(c):
-    return "sso-test-ksvc." + c["knative_public"]
+    return "sso-test-ksvc." + c["routes"]["knative_public"]["domain"]
 
 
 def portal_origin(c):
@@ -87,7 +87,7 @@ def auth_certificate(c):
                           ("knative_domain", "knative-wildcard-tls"),
                           ("knative_nobuffer_domain", "knative-nobuffer-tls"),
                           ("knative_public", "knative-public-tls")):
-        host, domain = c["sso"]["auth_host"], c[route]
+        host, domain = c["sso"]["auth_host"], c["routes"][route]["domain"]
         if host.endswith("." + domain) and "." not in host[:-(len(domain) + 1)]:
             return secret
     raise ValueError("sso.auth_host は公開経路ドメインの直下に指定してください（ワイルドカード証明書を使用）")
@@ -101,7 +101,8 @@ def valid_id_token_header(header):
         name != "x-real-ip" and not name.startswith(("x-forwarded-", "x-auth-request-", "x-kong-", "x-original-")))
 
 
-def normalize(c, routes):
+def normalize(c):
+    routes = c["routes"]
     supplied = c.get("sso", {})
     if not isinstance(supplied, dict) or set(supplied) - set(DEFAULTS):
         raise ValueError("sso に未対応の設定があります")
@@ -111,10 +112,6 @@ def normalize(c, routes):
         raise ValueError("sso.enabled は true / false")
     if type(s["cookie_expire_hours"]) is not int or not 2 <= s["cookie_expire_hours"] <= 8760:
         raise ValueError("sso.cookie_expire_hours は2〜8760時間の整数です（更新間隔は1時間）")
-    if not isinstance(s["routes"], dict) or any(k not in routes or v not in ("sso", "api", "public") for k, v in s["routes"].items()):
-        raise ValueError("sso.routes はルートIDと sso / api / public の対応を指定してください")
-    if s["routes"].get("knative_public", "public") != "public":
-        raise ValueError("knative_public はpublic専用経路です")
     if not valid_id_token_header(s["id_token_header"]):
         raise ValueError("sso.id_token_header はX-で始まる専用ヘッダー名を指定してください（転送・identity・Kong制御ヘッダーは予約済み）")
     token_routes = s["id_token_routes"]
@@ -124,7 +121,7 @@ def normalize(c, routes):
         raise ValueError("sso.id_token_routes は重複のない公開ルートIDの配列を指定してください")
     if "knative_public" in token_routes:
         raise ValueError("sso.id_token_routes: public経路にはIDトークンを転送できません")
-    if any(s["routes"].get(route, "sso") == "public" for route in token_routes):
+    if any(c["routes"][route]["auth"] == "public" for route in token_routes):
         raise ValueError("sso.id_token_routes にpublicルートは指定できません")
     if not isinstance(s["secret_file"], str):
         raise ValueError("sso.secret_file はファイルパスです")
@@ -137,9 +134,9 @@ def normalize(c, routes):
         raise ValueError("SSO有効時は tls.enabled=true が必須です")
     if not isinstance(s["email_domain"], str) or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) for part in s["email_domain"].split(".")) or "." not in s["email_domain"]:
         raise ValueError("sso.email_domain に許可するGoogle Workspaceメールドメインを指定してください")
-    domains = [c[route] for route in routes]
+    domains = [c["routes"][route]["domain"] for route in routes]
     if s["auth_host"] == "":
-        s["auth_host"] = "auth." + c["knative_domain"]
+        s["auth_host"] = "auth." + c["routes"]["knative_domain"]["domain"]
     if s["cookie_domain"] == "":
         s["cookie_domain"] = c.get("base_domain") or common_domain(domains)
     for key in ("auth_host", "cookie_domain"):
@@ -155,10 +152,10 @@ def normalize(c, routes):
 
 
 def hosts(c):
-    return ["hello-test-ssvc." + c["standard_domain"], "hello-test-ssvc." + c["standard_nobuffer_domain"],
-            "hello-test-ksvc." + c["knative_domain"], "hello-nobuffer-test-ksvc." + c["knative_nobuffer_domain"],
-            "hello-default-test-ssvc." + c[c["default_routes"]["standard"]],
-            "hello-default-test-ksvc." + c[c["default_routes"]["knative"]]]
+    return ["hello-test-ssvc." + c["routes"]["standard_domain"]["domain"], "hello-test-ssvc." + c["routes"]["standard_nobuffer_domain"]["domain"],
+            "hello-test-ksvc." + c["routes"]["knative_domain"]["domain"], "hello-nobuffer-test-ksvc." + c["routes"]["knative_nobuffer_domain"]["domain"],
+            "hello-default-test-ssvc." + c["routes"][c["default_routes"]["standard"]]["domain"],
+            "hello-default-test-ksvc." + c["routes"][c["default_routes"]["knative"]]["domain"]]
 
 
 def credentials(c):
@@ -273,8 +270,8 @@ def render(c, output, route_ids):
     annotations = {}
     for route in route_ids:
         name = "sso-" + route.replace("_", "-")
-        items.append(plugin(name, "public" if route == "knative_public" else s["routes"].get(route, "sso"),
-                            ["*." + c[route]] if route == "knative_public" else all_hosts,
+        items.append(plugin(name, c["routes"][route]["auth"],
+                            ["*." + c["routes"][route]["domain"]] if route == "knative_public" else all_hosts,
                             route in s["id_token_routes"]))
         annotations[route] = '    konghq.com/plugins: "' + name + '"'
     items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
@@ -405,8 +402,8 @@ def test_plan(c, format):
                "headers=$(mktemp)", "trap " + shlex.quote('rm -f "$headers"') + " EXIT"]
              if format == "shell" else ["# 外部確認プラン", "", "別ネットワークで実施。未認証・認証済み・内部診断を別々に記録する。", ""])
     for host, route in zip(hosts(c), ids):
-        mode = (c["sso"]["routes"].get(route, "sso")
-                if c["sso"]["enabled"] and route != "knative_public" else "public")
+        mode = (c["routes"][route]["auth"]
+                if c["sso"]["enabled"] else "public")
         path = "/get"
         api_request = mode == "api" or any(path == prefix or path.startswith(prefix + "/") for prefix in c["sso"]["api_paths"])
         expected = "200" if mode == "public" else "401" if api_request else "302"

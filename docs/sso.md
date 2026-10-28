@@ -40,16 +40,44 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
   "cookie_domain": "tmp.ys-method-dev.com",
   "cookie_expire_hours": 72,
   "secret_file": ".local/secrets/google-sso.json",
-  "routes": {
-    "standard_domain": "sso",
-    "standard_nobuffer_domain": "sso",
-    "knative_domain": "sso",
-    "knative_nobuffer_domain": "sso",
-    "knative_public": "public"
-  },
-  "api_paths": ["/api", "/upload"],
+  "api_paths": [
+    "/api",
+    "/upload"
+  ],
   "id_token_routes": [],
   "id_token_header": "X-Forwarded-Id-Token"
+},
+"routes": {
+  "standard_domain": {
+    "kind": "standard",
+    "domain": "standard.tmp.ys-method-dev.com",
+    "auth": "sso",
+    "buffering": true
+  },
+  "standard_nobuffer_domain": {
+    "kind": "standard",
+    "domain": "standard-nobuffer.tmp.ys-method-dev.com",
+    "auth": "sso",
+    "buffering": false
+  },
+  "knative_domain": {
+    "kind": "knative",
+    "domain": "knative.tmp.ys-method-dev.com",
+    "auth": "sso",
+    "buffering": true
+  },
+  "knative_nobuffer_domain": {
+    "kind": "knative",
+    "domain": "knative-nobuffer.tmp.ys-method-dev.com",
+    "auth": "sso",
+    "buffering": false
+  },
+  "knative_public": {
+    "kind": "knative",
+    "domain": "knative-public.tmp.ys-method-dev.com",
+    "auth": "public",
+    "buffering": true
+  }
 }
 ```
 
@@ -58,7 +86,7 @@ Cookie共有親ドメインを設定できる。
 有効時はHTTPSが必須で、TLS設定も入力する。`email_domain`は従来の
 `SSO_EMAIL_DOMAIN`に対応する非機密設定。
 
-- `enabled=true`：ルートIDごとの認証を適用する。routes省略時は全4ルートがsso。
+- `enabled=true`：トップレベルの `routes.<経路ID>.auth` に従って認証を適用する。
 - `sso`：未認証GET／HEADはログインへ302。api_pathsのパスと配下、その他のHTTPメソッド、
   Upgrade要求は401。APIのGETをリダイレクトさせたくない場合はパスまたはapiルートを指定する。
 - `api`：未認証は常に401。これはブラウザCookieを検証するAPI用応答であり、Bearer認証ではない。

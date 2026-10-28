@@ -25,13 +25,13 @@ class FourRouteDomains(unittest.TestCase):
         return infra.load(path)
 
     def test_old_config_requires_explicit_nobuffer_domains(self):
-        del self.config["standard_nobuffer_domain"]
+        del self.config["routes"]["standard_nobuffer_domain"]["domain"]
         with self.assertRaisesRegex(ValueError, "standard_nobuffer_domain"):
             self.load()
 
     def test_domains_must_be_distinct_and_valid(self):
-        for value in (self.config["standard_domain"], "Bad_domain", None, "x." * 120 + "example.test"):
-            self.config["knative_nobuffer_domain"] = value
+        for value in (self.config["routes"]["standard_domain"]["domain"], "Bad_domain", None, "x." * 120 + "example.test"):
+            self.config["routes"]["knative_nobuffer_domain"]["domain"] = value
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.load()
 
@@ -43,7 +43,7 @@ class FourRouteDomains(unittest.TestCase):
         self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 5)
         self.assertEqual(routes.count('konghq.com/response-buffering: "false"'), 2)
         for key in ("standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain"):
-            self.assertIn(self.config[key], routes)
+            self.assertIn(self.config["routes"][key]["domain"], routes)
         domain = (self.directory / "knative-config/domain.yaml").read_text()
         self.assertIn('infra.sasano8.dev/route: knative_nobuffer_domain', domain)
         self.assertIn('  name: config-domain\n  namespace: knative-serving\ndata:\n', domain)
@@ -90,11 +90,11 @@ class FourRouteDomains(unittest.TestCase):
             self.assertTrue(expected <= {r['name'] for r in identities if r['kind'] == kind})
         domains = {d for r in certs for d in r['spec']['dnsNames']}
         for key in ('standard_domain', 'knative_domain', 'standard_nobuffer_domain', 'knative_nobuffer_domain'):
-            self.assertIn('*.' + self.config[key], domains)
+            self.assertIn('*.' + self.config["routes"][key]["domain"], domains)
 
     def test_nobuffer_certificate_zone_is_validated(self):
         self.enable_tls()
-        self.config['knative_nobuffer_domain'] = 'outside.invalid'
+        self.config["routes"]["knative_nobuffer_domain"]["domain"] = 'outside.invalid'
         with self.assertRaisesRegex(ValueError, '範囲外'):
             self.load()
 
@@ -123,16 +123,16 @@ class FourRouteDomains(unittest.TestCase):
                         if infra.PUBLIC_ROUTES[route]["kind"] == kind:
                             self.assertEqual(infra.resolve_route(c, kind, route), route)
                 domains = infra.knative_domain_data(c)
-                self.assertEqual(domains[c[knative]], "")
+                self.assertEqual(domains[c["routes"][knative]["domain"]], "")
                 other = "knative_domain" if knative == "knative_nobuffer_domain" else "knative_nobuffer_domain"
-                self.assertIn("infra.sasano8.dev/route: " + other, domains[c[other]])
+                self.assertIn("infra.sasano8.dev/route: " + other, domains[c["routes"][other]["domain"]])
                 infra.render(c, self.directory)
                 routes = (self.directory / "routes.yaml").read_text()
                 for kind, route in (("standard", standard), ("knative", knative)):
                     name = "standard-default" if kind == "standard" else "hello-default"
                     document = next(d for d in routes.split("---") if "  name: " + name + "\n" in d)
-                    self.assertIn(c[route], document)
-                    self.assertIn('buffering: "' + str(infra.PUBLIC_ROUTES[route]["buffering"]).lower() + '"', document)
+                    self.assertIn(c["routes"][route]["domain"], document)
+                    self.assertIn('buffering: "' + str(c["routes"][route]["buffering"]).lower() + '"', document)
 
 
     def test_installer_saves_selected_defaults(self):

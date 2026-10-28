@@ -78,11 +78,6 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
 {
   "mode": "new-host",
   "base_domain": "tmp.ys-method-dev.com",
-  "knative_domain": "knative.tmp.ys-method-dev.com",
-  "standard_domain": "standard.tmp.ys-method-dev.com",
-  "standard_nobuffer_domain": "standard-nobuffer.tmp.ys-method-dev.com",
-  "knative_nobuffer_domain": "knative-nobuffer.tmp.ys-method-dev.com",
-  "knative_public": "knative-public.tmp.ys-method-dev.com",
   "kourier_service": "kourier.kourier-system.svc.cluster.local",
   "node_port": null,
   "tls": {
@@ -99,12 +94,38 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
     "auth_host": "auth.knative.tmp.ys-method-dev.com",
     "cookie_domain": "tmp.ys-method-dev.com",
     "cookie_expire_hours": 72,
-    "secret_file": ".local/secrets/google-sso.json",
-    "routes": {
-      "standard_domain": "sso",
-      "standard_nobuffer_domain": "sso",
-      "knative_domain": "sso",
-      "knative_nobuffer_domain": "sso"
+    "secret_file": ".local/secrets/google-sso.json"
+  },
+  "routes": {
+    "standard_domain": {
+      "kind": "standard",
+      "domain": "standard.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": true
+    },
+    "standard_nobuffer_domain": {
+      "kind": "standard",
+      "domain": "standard-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_domain": {
+      "kind": "knative",
+      "domain": "knative.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": true
+    },
+    "knative_nobuffer_domain": {
+      "kind": "knative",
+      "domain": "knative-nobuffer.tmp.ys-method-dev.com",
+      "auth": "sso",
+      "buffering": false
+    },
+    "knative_public": {
+      "kind": "knative",
+      "domain": "knative-public.tmp.ys-method-dev.com",
+      "auth": "public",
+      "buffering": true
     }
   }
 }

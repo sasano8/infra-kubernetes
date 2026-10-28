@@ -363,6 +363,9 @@ Namespace は `test`。公開ホスト名はアプリ名・Namespace・種類の
 
 ## 動作確認
 
+通常Service／Knativeの転送、Host判定、SSOポータルとエラー生成の同居は
+[ルーティング構成図](docs/routing-architecture.md)を参照。現状と簡素化後の目標を分けて記載している。
+
 未公開ホストは421、既存アプリ内の存在しないパスは404として区別する。
 証明書対象外のホストはTLS段階で失敗するため、HTTP応答は返らない。
 実配備での確認は [ルーティングエラーの動作とテスト](docs/routing-errors.md)を参照。

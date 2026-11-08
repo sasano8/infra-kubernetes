@@ -102,8 +102,8 @@ def main():
     parser.add_argument("--loopback-port", type=int, help="ローカル接続のポートだけ変更（port-forward等）")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--app", action="append", default=[], metavar="ROUTE_ID=HTTPS_URL")
-    parser.add_argument("--unknown-auth", choices=("current", "required"), default="current",
-                        help="current: 未知ホストは未認証でも421。required: 保護経路は認証を先に要求")
+    parser.add_argument("--unknown-auth", choices=("current", "required"), default="required",
+                        help="required: 保護経路は認証を先に要求（既定）。current: 旧仕様の未認証421を確認")
     args = parser.parse_args()
     try:
         config = infra.load(args.config)

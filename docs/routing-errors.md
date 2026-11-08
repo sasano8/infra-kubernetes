@@ -2,18 +2,24 @@
 
 ワイルドカードDNSは、アプリが存在しない名前もKongへ到達させる。
 DNSのNXDOMAINをHTTPで返すことはできないため、HTTPまで到達した未公開ホストには
-`421 Misdirected Request` と `application/problem+json` の `code: unknown_host` を返す。別URLやGoogleログインへは転送しない。
+`421 Misdirected Request` と `application/problem+json` の `code: unknown_host` を返す。
+ただし保護ドメイン内では先に認証を行う。SSO経路の未認証GET/HEADはGoogleログインへの302、
+API経路・APIパス・非GET/HEADは401。認証済みなら421となる。
+public経路・SSO無効時・設定外の未知Hostは認証前でも421を返す。
+保護経路のベースドメインと1階層のサブドメインは設定から生成した専用のエラーIngressで扱い、
+完全一致の既存アプリ・認証ホストは個別Ingressを優先する。callbackは引き続き公開する。
 
 | 要求 | 期待する動作 |
 | --- | --- |
 | 正しいpublicアプリのURL | 200 |
 | 正しいアプリ内の存在しないAPI・パス | アプリ自身の404をそのまま返す |
 | `knative_public`配下の存在しないアプリ名 | ワイルドカード証明書でTLS検証が成功した後、421 |
-| Kongに経路がない未知のHost | HTTPまで到達すれば421 |
+| 保護ドメイン配下の未公開Host | 未認証は302（APIは401）、認証後421 |
+| 設定外の未知のHost | HTTPまで到達すれば421 |
 | 認証ホストの未公開パス（`/`、`/oauth2/auth` など） | 認証用処理が404、`{"error":"path_not_found"}`。Host不一致にはしない |
 | DNSに存在しない名前 | 名前解決に失敗。HTTP応答なし |
 | DNSが解決しても証明書の対象外の名前 | TLS検証で失敗。HTTP応答なし |
-| 有効なTLS接続に未知のHostを指定 | 421 |
+| 有効なTLS接続に設定外の未知のHostを指定 | 421 |
 | 存在するサービスの障害・起動待ち | 従来の503などを維持。404・5xxの一律変換はしない |
 
 例えば `asdfasfasdfasdfsso-test-ksvc.knative-public.backoffice.ys-method-dev.com` は、

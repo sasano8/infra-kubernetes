@@ -240,3 +240,131 @@ $route_errors_tls
               service:
                 name: error-service
                 port: {number: $error_service_port}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route-errors-standard
+  namespace: test
+  annotations:
+$standard_error_auth
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+spec:
+  ingressClassName: kong-ingress
+  rules:
+    - host: "$standard_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+    - host: "*.$standard_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route-errors-standard-nobuffer
+  namespace: test
+  annotations:
+$standard_nobuffer_error_auth
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+spec:
+  ingressClassName: kong-ingress
+  rules:
+    - host: "$standard_nobuffer_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+    - host: "*.$standard_nobuffer_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route-errors-knative
+  namespace: test
+  annotations:
+$knative_error_auth
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+spec:
+  ingressClassName: kong-ingress
+  rules:
+    - host: "$knative_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+    - host: "*.$knative_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route-errors-knative-nobuffer
+  namespace: test
+  annotations:
+$knative_nobuffer_error_auth
+    konghq.com/preserve-host: "true"
+    konghq.com/strip-path: "false"
+spec:
+  ingressClassName: kong-ingress
+  rules:
+    - host: "$knative_nobuffer_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}
+    - host: "*.$knative_nobuffer_domain"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: error-service
+                port: {number: $error_service_port}

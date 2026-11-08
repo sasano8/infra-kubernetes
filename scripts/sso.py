@@ -285,8 +285,9 @@ def render(c, output, route_ids):
     annotations = {}
     for route in route_ids:
         name = "sso-" + route.replace("_", "-")
+        domain = c["routes"][route]["domain"]
         items.append(plugin(name, c["routes"][route]["auth"],
-                            ["*." + c["routes"][route]["domain"]] if route == "knative_public" else all_hosts,
+                            ["*." + domain] if route == "knative_public" else all_hosts + [domain, "*." + domain],
                             route in s["id_token_routes"]))
         annotations[route] = name
     items.append(plugin("sso-oauth-endpoints", "oauth", [s["auth_host"]]))
@@ -299,7 +300,11 @@ def render(c, output, route_ids):
             "--email-domain=" + s["email_domain"], "--skip-jwt-bearer-tokens=false",
             "--pass-access-token=false", "--pass-authorization-header=false", "--request-logging=false"]
     args.append("--set-authorization-header=" + str(bool(s["id_token_routes"])).lower())
-    args += ["--whitelist-domain=" + h + ("" if port == 443 else ":" + str(port)) for h in all_hosts + [portal_host(c)]]
+    redirect_hosts = all_hosts + [portal_host(c)]
+    for route in c["routes"].values():
+        if route["auth"] != "public":
+            redirect_hosts += [route["domain"], "*." + route["domain"]]
+    args += ["--whitelist-domain=" + h + ("" if port == 443 else ":" + str(port)) for h in redirect_hosts]
     env = [{"name": name, "valueFrom": {"secretKeyRef": {"name": SECRET, "key": key}}}
            for name, key in zip(("OAUTH2_PROXY_CLIENT_ID", "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET"), KEYS)]
     items.append(resource("apps/v1", "Deployment", "oauth2-proxy", "test", spec={
@@ -460,10 +465,10 @@ def test_plan(c, format):
                   "- knative_public配下の存在しないアプリ名：HTTP 421（証明書検証は有効）。",
                   "- 既存アプリ内の存在しないパス：HTTP 404（アプリの応答を維持）。",
                   "- 経路ドメインの誤字：DNSまたはTLS段階で失敗。HTTP応答より前のエラー。",
-                  "- 有効なTLS接続に未知のHostを指定：HTTP 421。ログインや別URLへ転送しない。",
+                  "- 保護ドメイン内の未知のHost：未認証302（APIは401）、認証後421。設定外のHostは421。",
                   "", "実配備の確認：`python3 scripts/check-route-errors.py`（別設定は `--config <path>` を指定）。", ""]
     else:
-        lines += ["# 未公開Hostは421、既存アプリの存在しないパスは404。証明書対象外はTLS段階で失敗。",
+        lines += ["# 保護経路の未公開Hostは認証後421（未認証302/API401）。publicは未認証421。アプリ内不在は404。",
                   "# 外部端末で追加確認: python3 scripts/check-route-errors.py --config configs/environment/local.json"]
     lines += ["# DNSとヘアピンNATは別ネットワークで切り分ける。--resolveはDNS診断のみ、TLS検証は無効にしない。",
               "# 記録: コミット / 日時 / 実行場所 / 内部結果 / 外部未認証結果 / 外部認証済み結果 / 未実施項目。"]

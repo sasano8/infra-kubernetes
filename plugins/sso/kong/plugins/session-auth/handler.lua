@@ -1,5 +1,5 @@
 local http = require "resty.http"
-local Handler = { PRIORITY = 1500, VERSION = "1.5.1" }
+local Handler = { PRIORITY = 1500, VERSION = "1.6.0" }
 local default_id_token_header = "X-Forwarded-Id-Token"
 local identity = { "X-Auth-Request-User", "X-Auth-Request-Email", "X-Auth-Request-Groups",
                    "X-Auth-Request-Preferred-Username", "X-Forwarded-User", "X-Forwarded-Email",
@@ -15,7 +15,7 @@ function Handler:access(conf)
   local allowed = false
   for _, h in ipairs(conf.hosts) do
     if h == host then allowed = true end
-    if conf.mode == "public" and h:sub(1, 2) == "*." then
+    if conf.mode ~= "oauth" and h:sub(1, 2) == "*." then
       local suffix = h:sub(2)
       if host:sub(-#suffix) == suffix then
         local label = host:sub(1, #host - #suffix)

@@ -265,6 +265,11 @@ def render(c, output):
         return '    konghq.com/plugins: "' + ','.join(plugins) + '"'
     for route in PUBLIC_ROUTES:
         values[route.removesuffix("_domain") + "_auth"] = auth_annotation(route)
+        plugins = ["routing-error-reason"]
+        if route in route_plugins and c["routes"][route]["auth"] != "public":
+            plugins.append(route_plugins[route])
+        values[route.removesuffix("_domain") + "_error_auth"] = (
+            '    konghq.com/plugins: "' + ','.join(plugins) + '"')
     for kind in ("standard", "knative"):
         values[kind + "_default_auth"] = auth_annotation(resolve_route(c, kind))
     values["error_service_port"] = c["error_service"]["port"]

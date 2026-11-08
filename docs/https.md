@@ -180,14 +180,15 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 
 通常経路も同様で、例えば `api.standard.tmp.ys-method-dev.com` は既存の
 `standard-tls` Secret を使える。証明書がワイルドカードでも、サブドメインの
-ワイルドカード Ingress は作らない。公開するホスト・パス・バックエンドごとに
+アプリ転送用のワイルドカード Ingress は作らない。公開するホスト・パス・バックエンドごとに
 `ingressClassName: kong-ingress` の Ingress を追加する。
 DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するため再起動は不要。
 未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
 ただし共通の`route-errors` Ingressの`tls.hosts`には、HTTPS有効時に各公開経路の
 ベースドメインとワイルドカードを設定から生成し、対応する既存TLS Secretを参照する。
 これによりサンプルアプリの有無によらず、証明書対象内の未知のホストにも正しい証明書を返す。
-証明書の追加発行や転送先・認証の変更は行わず、未知のホストのHTTP応答は421のまま。
+証明書の追加発行は行わない。保護経路の未知ホストは認証を先に要求し、認証後に421を返す。
+public経路とSSO無効時は未認証でも421を返す。
 証明書対象外のホストはこの設定ではカバーしない。
 現在の KIC は `test` / `kong-system` Namespace を監視する。
 

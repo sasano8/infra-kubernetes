@@ -759,6 +759,34 @@ test('central login and return URL both retain the configured HTTPS port', funct
   assert(result.headers.Location == 'https://auth.knative.example.test:9443/oauth2/start?rd=' .. ngx.escape_uri('https://app.example.test:9443/get?q=1'))
 end)
 
+for _, mode in ipairs({'sso', 'api'}) do
+  test(mode .. ' protects an unpublished wildcard host before forwarding to errors', function()
+    conf.mode = mode
+    conf.hosts = {'knative.example.test', '*.knative.example.test'}
+    request.host = 'unpublished.knative.example.test'
+    response.status = 401
+    handler:access(conf)
+    assert(calls == 1)
+    assert(result.status == (mode == 'api' and 401 or 302))
+    if mode == 'sso' then
+      assert(result.headers.Location:find('unpublished.knative.example.test', 1, true))
+    end
+    result = nil
+    response.status = 202
+    handler:access(conf)
+    assert(result == nil and calls == 2) -- The matched error backend now returns 421.
+  end)
+end
+
+for _, host in ipairs({'nested.unpublished.knative.example.test', 'evilknative.example.test', 'unpublished.other.test'}) do
+  test('protected wildcard rejects unrelated or deeper host ' .. host, function()
+    conf.hosts = {'*.knative.example.test'}
+    request.host = host
+    handler:access(conf)
+    assert(result.status == 403 and calls == 0)
+  end)
+end
+
 print('Lua handler tests: ' .. count .. ' passed')
 if failures > 0 then
   error(failures .. ' Lua handler tests failed')

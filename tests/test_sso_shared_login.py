@@ -29,6 +29,37 @@ class SharedLoginTests(unittest.TestCase):
         infra.render(config, self.path)
         return json.loads((self.path / "sso.json").read_text())["items"]
 
+    def test_domain_fallbacks_authenticate_before_errors_and_follow_policy_changes(self):
+        for enabled in (True, False):
+            for policy in ("sso", "api", "public"):
+                self.raw["sso"]["enabled"] = enabled
+                self.raw["routes"]["knative_domain"]["auth"] = policy
+                config = self.load()
+                items = self.resources(config)
+                docs = (self.path / "routes.yaml").read_text().split("---")
+                for route_id in config["routes"]:
+                    if route_id == "knative_public":
+                        continue
+                    prefix = route_id.removesuffix("_domain")
+                    name = "route-errors-" + prefix.replace("_", "-")
+                    fallback = next(doc for doc in docs if "  name: " + name + "\n" in doc)
+                    route = config["routes"][route_id]
+                    self.assertIn('host: "' + route["domain"] + '"', fallback)
+                    self.assertIn('host: "*.' + route["domain"] + '"', fallback)
+                    self.assertIn("name: error-service", fallback)
+                    plugin = "sso-" + route_id.replace("_", "-")
+                    protected = enabled and route["auth"] != "public"
+                    expected = 'konghq.com/plugins: "routing-error-reason' + ("," + plugin if protected else "") + '"'
+                    self.assertIn(expected, fallback)
+                    if protected:
+                        conf = next(item["config"] for item in items if item["kind"] == "KongPlugin"
+                                    and item["metadata"]["name"] == plugin)
+                        self.assertIn("*." + route["domain"], conf["hosts"])
+                self.assertFalse(any("  name: route-errors-knative-public\n" in doc for doc in docs))
+                if enabled:
+                    oauth = next(item for item in items if item["kind"] == "Ingress")
+                    self.assertEqual(oauth["spec"]["rules"][0]["host"], config["sso"]["auth_host"])
+
     def test_existing_config_defaults_to_one_callback_and_shared_cookie(self):
         config = self.load()
         self.assertEqual(config["sso"]["auth_host"], "auth.knative.example.test")
@@ -43,7 +74,10 @@ class SharedLoginTests(unittest.TestCase):
                          "--cookie-samesite=lax"):
             self.assertIn(argument, args)
         self.assertEqual({arg for arg in args if arg.startswith("--whitelist-domain=")},
-                         {"--whitelist-domain=" + host for host in sso.hosts(config) + [sso.portal_host(config)]})
+                         {"--whitelist-domain=" + host for host in sso.hosts(config) + [sso.portal_host(config)]}
+                         | {"--whitelist-domain=" + prefix + route["domain"]
+                            for route in config["routes"].values() if route["auth"] != "public"
+                            for prefix in ("", "*.")})
         self.assertFalse(any(arg.startswith("--whitelist-domain=.") for arg in args))
 
     def test_generated_cookie_options_match_pinned_upstream_cli(self):

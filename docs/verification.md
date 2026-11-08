@@ -187,3 +187,68 @@ k -n knative-serving get cm config-network config-domain config-autoscaler -o ya
 Knative既定のスケールゼロ確認は `ksvc/hello-default` と
 `serving.knative.dev/service=hello-default` を使う。
 既定ルートを変更した場合は新しいホスト・URLで確認し、明示ルートの公開先が変わらないことも確認する。
+
+## 設定に基づくHTTPS・認証・未公開ホストの接続テスト
+
+Python標準モジュールだけで実行できる。`configs/environment/local.json` の5経路について、
+存在するアプリ／存在しないアプリ、未認証／ログイン済みCookie、公開DNS経由／127.0.0.1経由を確認する。
+既定は計40ケース。ローカル経由でもHost・TLS SNIは元のホスト名を使用し、証明書を検証する。
+リダイレクトは追わず、Cookie・応答本文・認証ヘッダーはログに表示しない。
+
+まずk0s/Kongホストで未認証だけ確認する：
+
+```bash
+python3 scripts/check-https-routes.py --anonymous-only
+```
+
+ログイン済みテストでは、ブラウザで保護アプリにログインし、開発者ツールのNetworkで
+そのアプリへのリクエストのCookieヘッダーの値を取得する。`Cookie:` の文字列を除き、
+分割されたセッションCookieも含めた値を1行で `.local/secrets/test-cookie` に保存する。
+このファイルは認証情報なのでGitやチャットへ貼らず、実行後は削除する。
+次の入力は画面に表示されない（sudo不要）：
+
+```bash
+python3 - <<'PY'
+import getpass
+import os
+from pathlib import Path
+path = Path('.local/secrets/test-cookie')
+path.parent.mkdir(parents=True, exist_ok=True)
+value = getpass.getpass('Cookie value: ')
+if not value.strip() or '\r' in value or '\n' in value:
+    raise SystemExit('空または複数行の値は保存しません')
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as stream:
+    os.fchmod(stream.fileno(), 0o600)
+    stream.write(value)
+PY
+python3 scripts/check-https-routes.py --cookie-file .local/secrets/test-cookie
+```
+
+Googleログイン自体は自動化せず、既存セッションを使ったアプリ接続を検証する。
+認証済みで200を期待した接続が302/401/403になれば失敗する。
+未認証の既存アプリは、経路のauthとSSO設定に従いpublic=200、sso=302、api=401を期待する。
+未知ホストは現在の設計では認証状態によらず421。将来、保護経路の未知ホストにも認証を
+要求する設計に変更する場合は `--unknown-auth required` でその要件をテストできる。
+この指定はサーバー設定を変更せず、現状の421には失敗を報告する。
+
+既存アプリの既定値はリポジトリのhelloサンプル。knative_publicはSSOポータルを使う。
+別アプリを確認したい場合や、SSO無効でポータルがない場合は経路ごとに上書きする：
+
+```bash
+python3 scripts/check-https-routes.py --cookie-file .local/secrets/test-cookie \
+  --app knative_domain=https://my-app.knative.example.test/get \
+  --app knative_public=https://my-public-app.knative-public.example.test/
+```
+
+`--config PATH` で別の環境設定を使える。URLは指定経路のドメイン配下のみ受け付ける。
+未知ホストは実行ごとにランダムな名前を作り、公開アプリに衝突する可能性を下げる。
+
+ヘアピンNATやDNSの問題で公開URLだけ失敗する場合も、ローカル接続の結果は独立して出力する。
+全ケースを継続し、1件でも失敗すれば終了コード1を返す。接続失敗は成功やスキップにしない。
+外部PCから実行する場合、127.0.0.1はそのPC自身なので、`--via dns` を指定する。
+ローカル経由だけなら `--via loopback` を指定する。
+接続ポートは設定の `tls.host_https_port`（nullなら443）を使用する。
+HTTPSのport-forward等を使う場合は `--loopback-port 8443` でローカル接続先ポートだけ変更できる。
+タイムアウトは1リクエスト30秒で、Knativeのコールドスタートが長い場合は `--timeout 180` を指定する。
+実クラスタ・実Cookieでの成功は利用環境で確認する必要がある。

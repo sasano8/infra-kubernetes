@@ -3,6 +3,7 @@
 Envoy's virtual hosts mirror net-kourier v1.20's domainsForRule and prefix routes.
 This exercises both proxies, but does not replace a live KIC/Knative reconciliation test.
 """
+import copy
 import http.client
 import json
 import os
@@ -179,7 +180,27 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                 {"name": "session-auth", "config": auth_config}], "routes": [
                     {"name": "app-" + name_suffix, "hosts": ["audit-existing." + domain], "paths": ["/"],
                      "strip_path": False, "preserve_host": True}]})
+        # KIC groups routes with the same Kubernetes Service+port into one
+        # Kong Service; Ingress plugin annotations are attached to Routes.
+        merged_errors = {"name": "fallback", "url": "http://route-errors:8080", "routes": []}
+        remaining = []
+        for service in kong["services"]:
+            if service["url"] == merged_errors["url"]:
+                for route in service["routes"]:
+                    route["plugins"] = service.get("plugins", [])
+                    merged_errors["routes"].append(route)
+            else:
+                remaining.append(service)
+        kong["services"] = remaining + [merged_errors]
         (path / "kong.yaml").write_text(yaml.safe_dump(kong))
+        before = copy.deepcopy(kong)
+        before["services"] = [service for service in before["services"]
+                              if not service["name"].startswith("app-route-errors-")]
+        for service in before["services"]:
+            if service["name"] == "fallback":
+                service["routes"] = [route for route in service["routes"]
+                                     if not route["name"].startswith("route-errors-")]
+        (path / "kong-before.yaml").write_text(yaml.safe_dump(before))
         for fixture in path.iterdir():
             if fixture.is_file():
                 fixture.chmod(0o644)  # Fixtures contain only generated test credentials/configuration.
@@ -202,8 +223,8 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
             start("kourier", "envoyproxy/envoy:v1.34-latest", ("-c", "/fixtures/envoy.json", "--concurrency", "1"))
             gateway = start("kong", "kong:3.9.1", flags=(
                 "-p", "127.0.0.1::8000", "-p", "127.0.0.1::8443",
-                "-e", "KONG_DATABASE=off", "-e", "KONG_DECLARATIVE_CONFIG=/fixtures/kong.yaml",
-                "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000,0.0.0.0:8443 ssl", "-e", "KONG_ADMIN_LISTEN=off",
+                "-e", "KONG_DATABASE=off", "-e", "KONG_KIC=on", "-e", "KONG_DECLARATIVE_CONFIG=/fixtures/kong-before.yaml",
+                "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000,0.0.0.0:8443 ssl", "-e", "KONG_ADMIN_LISTEN=127.0.0.1:8001",
                 "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_PLUGINS=bundled,session-auth",
                 "-e", "KONG_LUA_PACKAGE_PATH=/opt/?.lua;;",
                 "--mount", f"type=bind,src={path / 'session-auth'},dst=/opt/kong/plugins/session-auth,readonly"))
@@ -240,6 +261,18 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                 if time.monotonic() >= deadline:
                     raise RuntimeError("Kong/Envoy did not become ready")
                 time.sleep(0.25)
+            # Reproduce installing new protected fallbacks into an already
+            # running gateway, as KIC does via the DB-less Admin API.
+            docker("exec", gateway, "resty", "-e", """
+local http = require 'resty.http'
+local file = assert(io.open('/fixtures/kong.yaml'))
+local config = file:read('*a'); file:close()
+local res, err = http.new():request_uri('http://127.0.0.1:8001/config', {
+  method = 'POST', body = config, headers = {['Content-Type'] = 'application/yaml'}
+})
+assert(res, err)
+assert(res.status == 201, res.body)
+""")
             cases = [(standard_host, "/", 200), (public_host, "/", 200),
                      (standard_host, "/status/404", 404), (public_host, "/status/404", 404),
                      (unknown_app, "/", 421), (unknown_app, "/status/404", 421),

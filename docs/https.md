@@ -184,6 +184,11 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 `ingressClassName: kong-ingress` の Ingress を追加する。
 DB-less でも KIC が変更を監視し、稼働中の Kong へ反映するため再起動は不要。
 未知のホストを公開しないため、Ingress の `rules.host` と `tls.hosts` は具体的な名前にする。
+ただし共通の`route-errors` Ingressの`tls.hosts`には、HTTPS有効時に各公開経路の
+ベースドメインとワイルドカードを設定から生成し、対応する既存TLS Secretを参照する。
+これによりサンプルアプリの有無によらず、証明書対象内の未知のホストにも正しい証明書を返す。
+証明書の追加発行や転送先・認証の変更は行わず、未知のホストのHTTP応答は421のまま。
+証明書対象外のホストはこの設定ではカバーしない。
 現在の KIC は `test` / `kong-system` Namespace を監視する。
 
 例（`test` の既存 `hello-ssvc` Service を追加ホストで公開）:

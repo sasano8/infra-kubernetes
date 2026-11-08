@@ -103,6 +103,24 @@ class ErrorServerTests(unittest.TestCase):
 
 
 class ErrorManifestTests(unittest.TestCase):
+    def test_fallback_certificate_mapping_follows_config_and_tls_switch(self):
+        for enabled in (False, True):
+            with self.subTest(tls=enabled), tempfile.TemporaryDirectory() as td:
+                path = Path(td)
+                raw = json.loads((ROOT / "configs/environment/example.json").read_text())
+                raw["tls"].update(enabled=enabled, email="admin@example.test", cloudflare_zone="example.test")
+                for index, route in enumerate(raw["routes"].values()):
+                    route["domain"] = f"custom-{index}.example.test"
+                (path / "config.json").write_text(json.dumps(raw))
+                infra.render(infra.load(path / "config.json"), path)
+                fallback = next(doc for doc in (path / "routes.yaml").read_text().split("---")
+                                if "  name: route-errors\n" in doc)
+                self.assertEqual("  tls:" in fallback, enabled)
+                if enabled:
+                    for route_id, route in raw["routes"].items():
+                        self.assertIn(json.dumps([route["domain"], "*." + route["domain"]]), fallback)
+                        self.assertIn("secretName: " + infra.PUBLIC_ROUTES[route_id]["secret"], fallback)
+
     def test_legacy_cleanup_preserves_unowned_services_and_the_routing_ingress(self):
         class Cluster:
             def __init__(self):

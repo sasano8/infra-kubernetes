@@ -219,6 +219,12 @@ def render(c, output):
     values["knative_public_tls"] = (
         f'  tls:\n    - hosts: ["*.{c["routes"]["knative_public"]["domain"]}"]\n      secretName: knative-public-tls'
         if c["tls"]["enabled"] else "")
+    # Register certificate SNIs independently of sample application routes.
+    values["route_errors_tls"] = ("  tls:\n" + "\n".join(
+        "    - hosts: " + json.dumps([definition["domain"], "*." + definition["domain"]])
+        + "\n      secretName: " + PUBLIC_ROUTES[route]["secret"]
+        for route, definition in c["routes"].items()
+    ) if c["tls"]["enabled"] else "")
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",

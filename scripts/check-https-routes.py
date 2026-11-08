@@ -136,6 +136,10 @@ def main():
                 continue
             total += 1
             label = f"{mode} {route} {kind} {'authenticated' if authenticated else 'anonymous'}"
+            label += " " + url
+            if mode == "loopback":
+                port = args.loopback_port or urlsplit(url).port or 443
+                label += f" (TCP 127.0.0.1:{port})"
             try:
                 result = request(url, "127.0.0.1" if mode == "loopback" else None,
                                  cookie if authenticated else "", args.timeout,

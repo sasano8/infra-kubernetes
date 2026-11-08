@@ -201,27 +201,45 @@ Python標準モジュールだけで実行できる。`configs/environment/local
 python3 scripts/check-https-routes.py --anonymous-only
 ```
 
-ログイン済みテストでは、ブラウザで保護アプリにログインし、開発者ツールのNetworkで
-そのアプリへのリクエストのCookieヘッダーの値を取得する。`Cookie:` の文字列を除き、
-分割されたセッションCookieも含めた値を1行で `.local/secrets/test-cookie` に保存する。
-このファイルは認証情報なのでGitやチャットへ貼らず、実行後は削除する。
-次の入力は画面に表示されない（sudo不要）：
+通常は次のMakeターゲットを順に実行する（sudo不要）：
 
 ```bash
-python3 - <<'PY'
-import getpass
-import os
-from pathlib import Path
-path = Path('.local/secrets/test-cookie')
-path.parent.mkdir(parents=True, exist_ok=True)
-value = getpass.getpass('Cookie value: ')
-if not value.strip() or '\r' in value or '\n' in value:
-    raise SystemExit('空または複数行の値は保存しません')
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, 'w') as stream:
-    os.fchmod(stream.fileno(), 0o600)
-    stream.write(value)
-PY
+make test-connect-prepare
+make test-connect
+make test-connect-cleanup
+```
+
+`test-connect-prepare` は環境設定からログイン用URLと対象アプリのURLを表示し、
+ブラウザの開発者ツールでCookieを取得する方法を案内する。ログイン後に対象アプリへの
+リクエストのRequest HeadersからCookie全体をコピーし、対話端末へ貼り付ける。
+入力は表示されない。`Cookie:` の接頭辞はあってもよい。分割されたセッションCookieにも対応する。
+Set-CookieやGoogle側のCookie、CSRF用Cookieだけでは準備できない。
+
+既定の保存先はGit管理外の `.local/secrets/test-cookie`。一時ファイルを使い、
+権限600で保存する。空入力・入力取消・入力エラーでは既存Cookieを変更しない。
+CookieをチャットやGitに貼らない。
+
+`test-connect` は保存したCookieを使い、未認証と認証後の両方を計40ケース確認する。
+Cookieがない場合は `make test-connect-prepare` を案内して終了する。
+期限切れ等で認証後の確認が失敗したら、ブラウザで再ログインしてprepareを再実行する。
+
+`test-connect-cleanup` はテスト用Cookieファイルだけを削除し、ファイルがなくても成功する。
+ブラウザのCookie・ログイン状態や、他のSecretは変更しない。
+
+環境設定・保存先・接続オプションも指定できる。保存先を変更した場合は3ターゲットで同じ値を使う：
+
+```bash
+make test-connect-prepare CONFIG=configs/environment/local.json \
+  TEST_CONNECT_COOKIE_FILE=.local/secrets/custom-test-cookie
+make test-connect CONFIG=configs/environment/local.json \
+  TEST_CONNECT_COOKIE_FILE=.local/secrets/custom-test-cookie \
+  TEST_CONNECT_ARGS="--via dns --timeout 180"
+make test-connect-cleanup TEST_CONNECT_COOKIE_FILE=.local/secrets/custom-test-cookie
+```
+
+Pythonスクリプトを直接実行する場合は次と同じ：
+
+```bash
 python3 scripts/check-https-routes.py --cookie-file .local/secrets/test-cookie
 ```
 

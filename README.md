@@ -391,6 +391,21 @@ python3 scripts/check-routes.py --internal knative
 ゼロになるまでの目安は最後のアクセスから1〜2分、最大10分待機する。
 待機中は別のアクセスを止める。
 
+### 未認証・認証後の接続テスト
+
+Kongホストで対話式にテスト用Cookieを準備し、設定の5経路について未認証／認証後・
+存在する／しないアプリ・公開URL／127.0.0.1経由を確認する（既定40件）。
+
+```bash
+make test-connect-prepare
+make test-connect
+make test-connect-cleanup
+```
+
+Cookieは非表示入力でローカルファイルへ保存し、cleanupで削除する。
+ブラウザでのログイン方法とCookieの取得方法はprepareが案内する。
+別設定や接続オプションは [接続テストの詳細](docs/verification.md#設定に基づくhttps認証未公開ホストの接続テスト) を参照。
+
 ### 外部端末から：DNS・HTTPS・SSO
 
 Kongホストで、設定に対応する外部確認対象と期待応答を生成する。

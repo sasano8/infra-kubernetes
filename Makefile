@@ -5,6 +5,10 @@ KUBECTL ?= kubectl
 PYTHON ?= python3
 SUDO ?= sudo
 EDITOR ?= vi
+TEST_CONNECT_COOKIE_FILE ?= .local/secrets/test-cookie
+TEST_CONNECT_ARGS ?=
+
+.PHONY: test-connect test-connect-prepare test-connect-cleanup
 
 .PHONY: help backup-cni-podman install-k0s start-k0s stop-k0s status-k0s reset-k0s install-helm edit-config configure-secret-cloudflare-token configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
 
@@ -24,6 +28,10 @@ help:
 	  'make restart-deployment-oauth2-proxy      認証サービスを再起動してSecretを再読込' \
 	  'make wait-deployment-oauth2-proxy         認証サービスのrollout完了を待機' \
 	  'make up                                 HTTPS必須で一括構築・配備' \
+	  'make test-connect-prepare               Cookie取得方法を案内し、非表示入力で保存' \
+	  'make test-connect                       未認証・認証後のHTTPS接続を確認（既定40件）' \
+	  'make test-connect-cleanup               接続テスト用Cookieだけを削除' \
+	  '接続テスト変数: TEST_CONNECT_COOKIE_FILE=... TEST_CONNECT_ARGS="--via dns --timeout 180"' \
 	  '変数: CONFIG=... KUBECTL=kubectl SUDO=sudo EDITOR=vi'
 
 # Host lifecycle operations require root; Kubernetes deployment uses user kubectl.
@@ -73,3 +81,13 @@ wait-deployment-oauth2-proxy:
 
 up:
 	@./bin/infra up --require-https --config "$(CONFIG)" --kubectl "$(KUBECTL)"
+
+test-connect-prepare:
+	@$(PYTHON) scripts/test-connect-cookie.py prepare --config "$(CONFIG)" --cookie-file "$(TEST_CONNECT_COOKIE_FILE)"
+
+test-connect:
+	@test -f "$(TEST_CONNECT_COOKIE_FILE)" || { echo 'Cookieがありません。先に make test-connect-prepare を実行してください。'; exit 1; }
+	@$(PYTHON) scripts/check-https-routes.py --config "$(CONFIG)" --cookie-file "$(TEST_CONNECT_COOKIE_FILE)" $(TEST_CONNECT_ARGS)
+
+test-connect-cleanup:
+	@$(PYTHON) scripts/test-connect-cookie.py cleanup --cookie-file "$(TEST_CONNECT_COOKIE_FILE)"

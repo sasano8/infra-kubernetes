@@ -1,5 +1,7 @@
 """Verify network routing semantics and authentication expectations without a live cluster."""
 import importlib.util
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import sys
@@ -17,6 +19,29 @@ spec.loader.exec_module(checks)
 
 
 class HTTPSRouteTests(unittest.TestCase):
+    def test_run_groups_all_anonymous_requests_before_session_requests(self):
+        config = self.config()
+        for anonymous_only in (False, True):
+            with self.subTest(anonymous_only=anonymous_only), tempfile.TemporaryDirectory() as td:
+                cookie_file = Path(td) / "cookie"
+                cookie_file.write_text("__Secure-infra_sso=dummy-session")
+                argv = ["check-https-routes.py"] + (["--anonymous-only"] if anonymous_only else
+                                                       ["--cookie-file", str(cookie_file)])
+                output = io.StringIO()
+                with patch.object(sys, "argv", argv), patch.object(checks.infra, "load", return_value=config), \
+                        patch.object(checks, "request", return_value=(200, {}, b"")) as request, \
+                        patch.object(checks, "verify", return_value=None), redirect_stdout(output):
+                    self.assertEqual(checks.main(), 0)
+                cookies = [call.args[2] for call in request.call_args_list]
+                expected = [""] * 20 + ([] if anonymous_only else [cookie_file.read_text()] * 20)
+                self.assertEqual(cookies, expected)
+                self.assertIn("未認証結果: 20/20 成功", output.getvalue())
+                self.assertEqual("認証後結果: 20/20 成功" in output.getvalue(), not anonymous_only)
+                if not anonymous_only:
+                    self.assertLess(output.getvalue().index("未認証結果:"), output.getvalue().index("=== 認証後"))
+                    self.assertIn("結果: 40/40 成功", output.getvalue())
+                self.assertNotIn("dummy-session", output.getvalue())
+
     def config(self):
         raw = json.loads((ROOT / "configs/environment/example.json").read_text())
         raw["tls"].update(enabled=True, email="admin@example.test", cloudflare_zone="example.test")

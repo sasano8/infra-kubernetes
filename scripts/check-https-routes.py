@@ -130,29 +130,34 @@ def main():
     passed = total = 0
     modes = ("dns", "loopback") if args.via == "both" else (args.via,)
     print("未公開ホストの期待値: " + args.unknown_auth + " / リダイレクト追跡なし / TLS検証あり")
-    for mode in modes:
-        for route, kind, authenticated, url, expected in plan:
-            if authenticated and args.anonymous_only:
-                continue
-            total += 1
-            label = f"{mode} {route} {kind} {'authenticated' if authenticated else 'anonymous'}"
-            label += " " + url
-            if mode == "loopback":
-                port = args.loopback_port or urlsplit(url).port or 443
-                label += f" (TCP 127.0.0.1:{port})"
-            try:
-                result = request(url, "127.0.0.1" if mode == "loopback" else None,
-                                 cookie if authenticated else "", args.timeout,
-                                 **({"connect_port": args.loopback_port} if mode == "loopback" else {}))
-                error = verify(config, result, expected)
-                if error:
-                    print(f"FAIL {label}: {error}")
-                else:
-                    passed += 1
-                    print(f"PASS {label}: HTTP {expected}")
-            except (OSError, ValueError, http.client.HTTPException) as exc:
-                # Never echo exception messages, response headers/body or Cookie values.
-                print(f"FAIL {label}: {type(exc).__name__} (DNS/TCP/TLS/HTTP接続失敗)")
+    for phase in ((False,) if args.anonymous_only else (False, True)):
+        phase_name = "認証後" if phase else "未認証"
+        print("\n=== " + phase_name + ("（保存済みCookieあり）" if phase else "（Cookieなし）") + " ===")
+        before_passed, before_total = passed, total
+        for mode in modes:
+            for route, kind, authenticated, url, expected in plan:
+                if authenticated != phase:
+                    continue
+                total += 1
+                label = f"{mode} {route} {kind} {'authenticated' if authenticated else 'anonymous'}"
+                label += " " + url
+                if mode == "loopback":
+                    port = args.loopback_port or urlsplit(url).port or 443
+                    label += f" (TCP 127.0.0.1:{port})"
+                try:
+                    result = request(url, "127.0.0.1" if mode == "loopback" else None,
+                                     cookie if authenticated else "", args.timeout,
+                                     **({"connect_port": args.loopback_port} if mode == "loopback" else {}))
+                    error = verify(config, result, expected)
+                    if error:
+                        print(f"FAIL {label}: {error}")
+                    else:
+                        passed += 1
+                        print(f"PASS {label}: HTTP {expected}")
+                except (OSError, ValueError, http.client.HTTPException) as exc:
+                    # Never echo exception messages, response headers/body or Cookie values.
+                    print(f"FAIL {label}: {type(exc).__name__} (DNS/TCP/TLS/HTTP接続失敗)")
+        print(f"{phase_name}結果: {passed - before_passed}/{total - before_total} 成功")
     print(f"結果: {passed}/{total} 成功" + ("（未認証のみ）" if args.anonymous_only else ""))
     return 0 if passed == total else 1
 

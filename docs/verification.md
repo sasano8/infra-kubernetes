@@ -220,6 +220,8 @@ Set-CookieやGoogle側のCookie、CSRF用Cookieだけでは準備できない。
 CookieをチャットやGitに貼らない。
 
 `test-connect` は保存したCookieを使い、未認証と認証後の両方を計40ケース確認する。
+未認証（Cookieなし）の全20件を実行してから、認証後（保存済みCookieあり）の全20件を実行し、
+それぞれの小計と全体の結果を表示する。各一式の中では公開DNS経由、127.0.0.1経由の順に確認する。
 Cookieがない場合は `make test-connect-prepare` を案内して終了する。
 期限切れ等で認証後の確認が失敗したら、ブラウザで再ログインしてprepareを再実行する。
 

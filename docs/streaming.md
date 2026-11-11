@@ -10,6 +10,38 @@ buffer 側は両設定を `"true"` にする。[4経路の構成](four-routes.md
 これはサンプルのルート設定であり、Knative の公開ルート選択を一般アプリの公開へ連携する機能
 (SAS-68) は含まない。指定しただけで経路全体の非バッファリングが実証されたとは扱わない。
 
+## リクエストの逐次転送とレスポンスの制御方針
+
+アプリ向け経路では、認証が必要な場合は先に認証を行い、`konghq.com/request-buffering: "false"`
+でリクエスト本文を受信しながらバックエンドへ順次転送する方針とする。
+認証アプリ（`oauth2-proxy` など）と公開ドメイン
+（`knative_public`）は、リクエストを既定で逐次転送する方針の適用対象から除く。
+レスポンスは、バックエンドが返す `X-Accel-Buffering` に従って Kong が処理する。
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant K as Kong
+    participant B as バックエンド
+    C->>K: リクエストヘッダー
+    alt 逐次転送の対象となるアプリ
+        Note over K: 保護経路は認証後に転送
+        C->>K: リクエスト本文を送信
+        K->>B: 受信中から本文を順次転送
+        Note over K,B: Knative は Kourier を経由
+        B-->>K: レスポンスヘッダーと本文
+        alt X-Accel-Buffering が no
+            K-->>C: レスポンスを順次転送
+        else X-Accel-Buffering が yes
+            K-->>C: バッファリングを有効にして転送
+        else ヘッダー指定なし
+            K-->>C: ルートのレスポンス設定に従って転送
+        end
+    else 認証アプリまたは公開ドメイン
+        K->>B: 各ルートの設定に従って処理
+    end
+```
+
 ## アプリからレスポンス単位でバッファリングを無効にする
 
 SSE など、特定のレスポンスを逐次配信する場合は、アプリのレスポンスに次のヘッダーを付ける。

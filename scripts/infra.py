@@ -153,7 +153,7 @@ def load(path):
     tls.normalize(c)
     sso.normalize(c)
     platform_plugins.normalize(c)
-    upload_limits.normalize(c, dns_name)
+    upload_limits.normalize(c)
     return c
 
 
@@ -284,7 +284,7 @@ def render(c, output):
     values["error_service_port"] = c["error_service"]["port"]
     values["knative_default_backend"] = ("kourier-public-proxy" if resolve_route(c, "knative") == "knative_public"
                                          else "kourier-proxy")
-    limits_config = upload_limits.nginx_config(c)
+    limits_config = upload_limits.NGINX_CONFIG
     values.update(c["upload_limits"])
     values["upload_limits_config"] = "\n".join("    " + line if line else "" for line in limits_config.splitlines())
     values["upload_limits_hash"] = hashlib.sha256(limits_config.encode()).hexdigest()

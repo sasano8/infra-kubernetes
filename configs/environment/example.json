@@ -26,9 +26,7 @@
     "upstream_connect_timeout_seconds": 5,
     "upstream_send_idle_timeout_seconds": 30,
     "upstream_read_idle_timeout_seconds": 330,
-    "max_concurrent_upload_requests": 5,
-    "upload_path_prefixes": ["/upload", "/uploads"],
-    "s3_hosts": []
+    "max_concurrent_upload_requests": 5
   },
   "error_service": {
     "name": "platform-portal",

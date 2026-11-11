@@ -49,8 +49,7 @@ def main():
         raw["tls"].update(enabled=True, email="test@example.test", cloudflare_zone="example.test")
         raw["sso"] = {"enabled": True, "email_domain": "example.test"}
         raw["upload_limits"].update(client_body_idle_timeout_seconds=3,
-                                    upstream_read_idle_timeout_seconds=2,
-                                    s3_hosts=["storage.example.test"])
+                                    upstream_read_idle_timeout_seconds=2)
         (path / "config.json").write_text(json.dumps(raw))
         config = infra.load(path / "config.json")
         infra.render(config, path / "rendered")
@@ -164,7 +163,7 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
         standard_host = "hello-test-ssvc." + config["routes"]["standard_domain"]["domain"]
         private_host = "hello-test-ksvc." + config["routes"]["knative_domain"]["domain"]
         stream_host = "audit-stream." + config["routes"]["knative_nobuffer_domain"]["domain"]
-        s3_host = config["upload_limits"]["s3_hosts"][0]
+        s3_host = "storage.example.test"
         public_host = "sso-test-ksvc." + public_domain
         public_sso_host = "audit-test-ksvc." + public_domain
         unknown_app = "does-not-exist-test-ksvc." + public_domain
@@ -501,16 +500,24 @@ r.read();c.close()
                 assert conn.getresponse().status == 413
             with ExitStack() as uploads:
                 for index in range(limits["max_concurrent_upload_requests"]):
-                    # Count both application uploads and S3 PUTs in the same zone.
+                    # Arbitrary paths and S3 hosts share the same body-request limit.
                     host, uri, method = (s3_host, "/bucket/key?partNumber=1&uploadId=fixture", "PUT") if index == 0 else (
-                        stream_host, "/uploads/file", "POST")
+                        stream_host, "/arbitrary/file", "POST")
                     token = f"concurrent-{index}"
                     uploads.enter_context(closing(partial_upload(host, uri, token, method=method)))
                     wait_observed("upload", token)
                 assert request(standard_host, "/upload", method="POST", body=b"x")[0] == 429
                 assert request(s3_host, "/bucket/key", method="PUT", body=b"x")[0] == 429
-                assert request(standard_host, "/uploading", method="POST", body=b"x")[0] == 200
-                assert request(public_host, "/upload", method="POST", body=b"x")[0] == 200
+                assert request(standard_host, "/api/update", method="POST", body=b'{"value":1}',
+                               headers={"Content-Type": "application/json"})[0] == 429
+                assert request(public_host, "/any-path", method="POST", body=b"x")[0] == 429
+                with closing(http.client.HTTPConnection("127.0.0.1", http_port, timeout=6)) as conn:
+                    conn.request("POST", "/another-path", body=b"1\r\nx\r\n0\r\n\r\n",
+                                 headers={"Host": standard_host, "Transfer-Encoding": "chunked"})
+                    assert conn.getresponse().status == 429
+                assert request(standard_host, "/api/update", method="POST", body=b"")[0] == 200
+                assert request(standard_host, "/api/update", method="POST", headers={"Content-Length": "000"})[0] == 200
+                assert request(auth_host, "/oauth2/callback", context=verified)[0] == 200
             deadline = time.monotonic() + 2
             while True:
                 status, body, _ = request(standard_host, "/upload", method="POST", body=b"x")

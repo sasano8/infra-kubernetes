@@ -161,19 +161,17 @@ Knative への転送では Kourier に Host を保持して渡す。
     "upstream_connect_timeout_seconds": 5,
     "upstream_send_idle_timeout_seconds": 30,
     "upstream_read_idle_timeout_seconds": 330,
-    "max_concurrent_upload_requests": 5,
-    "upload_path_prefixes": ["/upload", "/uploads"],
-    "s3_hosts": []
+    "max_concurrent_upload_requests": 5
   }
 }
 ```
 
 - **本文の上限と受信間隔**。Kong のプロキシ入口では、1 HTTP リクエストにつき 105 MiB を超えると 413 を返す。本文の受信が30秒止まると接続を閉じる。受信間隔はアップロード全体の制限時間とは別に扱う。
 - **上流へのタイムアウト**。通常アプリ向けの `hello-ssvc` と `kourier-proxy` には、接続5秒、書き込み間隔30秒、読み取り間隔330秒を適用する。Kourier へは Service 単位で適用するため、同じ Service を使う経路にもかかる。`knative_public` には別の Service を使い、従来のタイムアウトを適用する。別途登録する S3 用 Service の上流タイムアウトは、その Service のアノテーションで設定する。
-- **同時数**。設定したパスに対する `POST`・`PUT`・`PATCH` と、`s3_hosts` に列挙したホストへの `PUT` を、Kong 1台につき合計5件まで受け付ける。6件目は429になる。パスは完全一致または配下へのリクエストを数える。認証ホストと公開ドメインは通常アプリ向けのパス判定から除く。Kong を複数台にした場合は各台でカウントする。
+- **同時数**。Kong 1台につき、本文付きリクエストを合計5件まで受け付ける。6件目は429になる。現在の HTTP/1.1 入口では、正の `Content-Length` または `Transfer-Encoding: chunked` を持つリクエストを、処理が終了するまで数える。パス・ホスト・本文の形式にかかわらず適用するため、通常の JSON API や Kong 経由の S3 も同じ枠を使う。本文なしのリクエストは枠を使わない。Kong を複数台にした場合は各台でカウントする。
 
 通常 API の本文上限2 MiB やファイル1個100 MiBなど、API ごとの上限はアプリ側で適用する。
-`s3_hosts` は既存の Kong 経由の S3 ホストを同時数の対象に加えるために使う。
+以前の環境設定にある `upload_path_prefixes` と `s3_hosts` は削除できる。残っていても同時数の判定には使われない。
 
 ## S3 のマルチパートアップロードとサイズ上限
 

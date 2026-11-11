@@ -90,11 +90,15 @@ class RouteConfiguration(unittest.TestCase):
         self.raw.pop("upload_limits")
         self.assertEqual(self.load()["upload_limits"]["max_body_bytes"], 105 * 1024 * 1024)
         for overrides in ({"max_body_bytes": 0}, {"max_concurrent_upload_requests": True},
-                          {"upstream_connect_timeout_seconds": 76}, {"typo": 1},
-                          {"s3_hosts": ["bad host"]}, {"upload_path_prefixes": ["/a/../upload"]},
-                          {"upload_path_prefixes": ["/upload\n;#"]}):
+                          {"upstream_connect_timeout_seconds": 76}, {"typo": 1}):
             with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "upload_limits"):
                 self.load(dict(self.raw, upload_limits=overrides))
+        migrated = self.load(dict(self.raw, upload_limits={"upload_path_prefixes": ["/old"],
+                                                          "s3_hosts": ["old.example.test"],
+                                                          "max_concurrent_upload_requests": 3}))
+        self.assertNotIn("upload_path_prefixes", migrated["upload_limits"])
+        self.assertNotIn("s3_hosts", migrated["upload_limits"])
+        self.assertEqual(migrated["upload_limits"]["max_concurrent_upload_requests"], 3)
 
     def test_oauth_buffers_responses_and_public_keeps_its_route_setting(self):
         self.raw["default_routes"]["knative"] = "knative_public"

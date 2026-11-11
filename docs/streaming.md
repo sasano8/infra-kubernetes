@@ -1,20 +1,24 @@
 # ストリーミングの設計と検証
 
 Kong と Kourier を経由するリクエスト本文とレスポンスの転送方針を示す。
-現行のサンプル構成では、通常 Service と Knative の各経路でデータの到着時刻を比較できる。
+ここでいう **ストリーミング転送** は、1回のリクエストまたはレスポンスの本文を
+最後まで受信する前に、届いた分から転送することを指す。
+通常 Service と Knative のサンプル経路で、データの到着時刻を比較できる。
 
-## リクエストの逐次転送とレスポンスの制御方針
+<a id="リクエストの逐次転送とレスポンスの制御方針"></a>
+
+## リクエストのストリーミングとレスポンスの制御
 
 サンプル経路の実際の設定値は [現行の検証構成](#現行の検証構成) を参照。
 
 アプリ向け経路では、認証が必要な場合は先に認証を行い、`konghq.com/request-buffering: "false"`
-でリクエスト本文を受信しながらバックエンドへ順次転送する。
-認証アプリにもリクエストの逐次転送を適用し、レスポンスはバッファリングを有効にする。
+でリクエスト本文を受信しながらバックエンドへ転送する。
+認証アプリへのリクエスト本文もストリーミング転送し、レスポンスはバッファリングを有効にする。
 自前の認証アプリは `X-Accel-Buffering: yes` を返す。`oauth2-proxy` は Kong の認証 Ingress で
 `konghq.com/response-buffering: "true"` を指定する。
 公開ドメイン（`knative_public`）では各ルートの設定を使う。
 レスポンスに `X-Accel-Buffering` がある場合は、Kong がその値に従って処理する。
-図は逐次転送の対象経路を示す。ヘッダーを省略したレスポンスは Kong のルート設定に従う。
+図はリクエスト本文をストリーミング転送する経路を示す。ヘッダーを省略したレスポンスは Kong のルート設定に従う。
 
 ### 共通手順
 
@@ -41,11 +45,11 @@ sequenceDiagram
     participant Q as Kourier（Envoy）
     participant B as バックエンド
     rect rgba(128, 128, 128, 0.15)
-        Note over Q: リクエスト・レスポンスとも順次転送
-        K->>Q: リクエスト本文を順次転送
-        Q->>B: リクエスト本文を順次転送
+        Note over Q: リクエストもレスポンスも本文を受信しながら転送
+        K->>Q: リクエスト本文を受信しながら転送
+        Q->>B: リクエスト本文を受信しながら転送
         B-->>Q: X-Accel-Buffering: yes とレスポンス本文
-        Q-->>K: ヘッダーと本文を順次転送
+        Q-->>K: ヘッダーを渡し、本文を受信しながら転送
         K-->>C: レスポンスをバッファリングして転送
     end
 ```
@@ -59,12 +63,12 @@ sequenceDiagram
     participant Q as Kourier（Envoy）
     participant B as バックエンド
     rect rgba(128, 128, 128, 0.15)
-        Note over Q: リクエスト・レスポンスとも順次転送
-        K->>Q: リクエスト本文を順次転送
-        Q->>B: リクエスト本文を順次転送
+        Note over Q: リクエストもレスポンスも本文を受信しながら転送
+        K->>Q: リクエスト本文を受信しながら転送
+        Q->>B: リクエスト本文を受信しながら転送
         B-->>Q: X-Accel-Buffering: no とレスポンス本文
-        Q-->>K: ヘッダーと本文を順次転送
-        K-->>C: レスポンスを順次転送
+        Q-->>K: ヘッダーを渡し、本文を受信しながら転送
+        K-->>C: レスポンス本文を受信しながら転送
     end
 ```
 
@@ -76,7 +80,7 @@ sequenceDiagram
     participant K as Kong
     participant B as バックエンド
     rect rgba(128, 128, 128, 0.15)
-        K->>B: リクエスト本文を順次転送
+        K->>B: リクエスト本文を受信しながら転送
         B-->>K: X-Accel-Buffering: yes とレスポンス本文
         K-->>C: レスポンスをバッファリングして転送
     end
@@ -90,9 +94,9 @@ sequenceDiagram
     participant K as Kong
     participant B as バックエンド
     rect rgba(128, 128, 128, 0.15)
-        K->>B: リクエスト本文を順次転送
+        K->>B: リクエスト本文を受信しながら転送
         B-->>K: X-Accel-Buffering: no とレスポンス本文
-        K-->>C: レスポンスを順次転送
+        K-->>C: レスポンス本文を受信しながら転送
     end
 ```
 
@@ -101,11 +105,11 @@ sequenceDiagram
 ### リクエスト本文
 
 `konghq.com/request-buffering: "false"` の経路では、Kong は本文の受信完了前から上流へ転送する。
-アプリが受信しながら保存する場合は、本文を順次読み取り、転送完了後に保存を確定する。
+アプリが受信しながら保存する場合は、本文を少しずつ読み取り、転送完了後に保存を確定する。
 
 ### アプリからレスポンス単位でバッファリングを無効にする
 
-SSE など、特定のレスポンスを逐次配信する場合は、アプリのレスポンスに次のヘッダーを付ける。
+SSE など、アプリがレスポンスを少しずつ返す場合は、アプリのレスポンスに次のヘッダーを付ける。
 
 ```http
 X-Accel-Buffering: no
@@ -114,14 +118,14 @@ X-Accel-Buffering: no
 Kong の既定構成では、buffer 経路でもこのヘッダーを受け取ったレスポンスのバッファリングを無効にできる。
 `yes` を返すとそのレスポンスのバッファリングを有効にし、ヘッダーの指定がなければ
 ルートの `konghq.com/response-buffering` に従う。
-逐次配信は、[少しずつ返るレスポンス](#少しずつ返るレスポンス)の手順でデータの到着時刻を確認する。
+[少しずつ返るレスポンス](#少しずつ返るレスポンス)の手順で、本文が完了前からクライアントに届くかを確認する。
 詳細は [Kong の SSE 設定ガイド](https://developer.konghq.com/support/how-can-i-use-kong-to-allow-sse-server-sent-events/) を参照。
 
 ### Knative 経路での Kourier と Kong の動作
 
 Knative 経路では Kong とアプリの間に Kourier（Envoy）が入る。
 この構成の Kourier v1.20 は、Kong のルート設定にかかわらず、リクエストとレスポンスの
-どちらも本文全体の受信完了を待たずに順次転送する。
+どちらも本文を受信しながら転送する。
 [Kourier v1.20 の Envoy 設定](https://github.com/knative-extensions/net-kourier/blob/knative-v1.20.0/pkg/envoy/api/http_connection_manager.go)
 
 アプリが返した `X-Accel-Buffering` は Kourier を経由して Kong に届く。
@@ -264,7 +268,7 @@ curl --fail-with-body --silent --show-error --max-time 90 \
 python3 -c 'import json; r=json.load(open(".local/results/upload.json")); assert r["bytes_received"] == 33554432; print("upload: 32 MiB received")'
 ```
 
-ファイルサイズと受信バイト数で転送結果を確認する。リクエストが逐次転送されたかは、
+ファイルサイズと受信バイト数で転送結果を確認する。リクエスト本文がストリーミング転送されたかは、
 送信完了前にバックエンドへ本文が届いていることをパケット観測などで確認する。
 go-httpbin の完了ログだけを取得した場合は「転送成功／request 非バッファリング未確認」と記録する。
 あわせて Kong・Kourier・queue-proxy・アプリのメモリと一時ディスクを観測する。
@@ -272,7 +276,7 @@ go-httpbin の完了ログだけを取得した場合は「転送成功／reques
 ## 証跡
 
 通常／Knative、buffer／nobuffer、内部／外部を明記し、実行コミット、日時、HTTP バージョン、
-Ingress の設定、転送量、データの到着時刻を記録する。転送結果と逐次到着の観測結果は
+Ingress の設定、転送量、データの到着時刻を記録する。転送結果と本文が完了前に届いたかどうかの観測結果は
 別々に記録し、未実施の確認にはその旨を記す。経路間で差が出なかった場合も実測値を残す。
 比較に使った他のプロキシや、メモリ・一時ディスクの観測値も添える。
 現時点で本版の実クラスタ検証は未実施。

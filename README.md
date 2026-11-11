@@ -457,7 +457,7 @@ python3 scripts/prune-resources.py apply
 
 通常 Service と Knative の hello は、同じ `ghcr.io/mccutchen/go-httpbin:2.21.0` を使用する。
 リソース名・公開 URL は維持し、`/get` で疎通と Host 保持を確認する。
-通常／Knative の4経路ではリクエスト本文を既定で逐次転送する。レスポンスのバッファリングの既定値は、buffer 経路で有効、nobuffer 経路で無効。
+通常／Knative の4経路ではリクエスト本文を既定でストリーミング転送する。レスポンスのバッファリングの既定値は、buffer 経路で有効、nobuffer 経路で無効。
 `/headers`、`/drip`、`/stream-bytes`、`/upload` の確認方法は
 [ストリーミング検証](docs/streaming.md)を参照。アプリ別設定の自動反映は SAS-68 の別課題。
 

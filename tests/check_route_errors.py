@@ -48,6 +48,7 @@ def main():
         raw = json.loads((ROOT / "configs/environment/example.json").read_text())
         raw["tls"].update(enabled=True, email="test@example.test", cloudflare_zone="example.test")
         raw["sso"] = {"enabled": True, "email_domain": "example.test"}
+        raw["plugins"]["argocd"]["enabled"] = True
         raw["upload_limits"].update(client_body_idle_timeout_seconds=3,
                                     upstream_read_idle_timeout_seconds=2)
         (path / "config.json").write_text(json.dumps(raw))
@@ -71,6 +72,8 @@ def main():
         oauth_items = json.loads((path / "rendered/sso.json").read_text())["items"]
         oauth_plugin = next(i for i in oauth_items if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "sso-oauth-endpoints")
         oauth_ingress = next(i for i in oauth_items if i["kind"] == "Ingress")
+        argocd_error, argocd_ingress = json.loads((path / "rendered/argocd-routes.json").read_text())["items"]
+        argocd_host = argocd_ingress["spec"]["rules"][0]["host"]
         auth_paths = [p["path"] for p in oauth_ingress["spec"]["rules"][0]["http"]["paths"]]
         route_annotations = {i["metadata"]["name"]: i["metadata"]["annotations"]
                              for i in generated_routes if i["kind"] == "Ingress"}
@@ -117,6 +120,15 @@ class App(BaseHTTPRequestHandler):
     do_PUT = do_POST
 
     def do_GET(self):
+        if self.path == '/proxy-error':
+            body = b'read tcp 127.0.0.1:36798->127.0.0.1:8080: read: connection reset by peer' + bytes([10])
+            self.send_response(502)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith('/observed/upload/'):
             return self.reply(204 if self.path.rsplit('/', 1)[-1] in uploads else 404)
         if self.path.startswith('/observed/response/'):
@@ -205,7 +217,8 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                     "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                     "stat_prefix": "test", "route_config": {"name": "external", "virtual_hosts": [
                         virtual_host(public_host, "app"), virtual_host(public_sso_host, "app"),
-                        virtual_host(stream_host, "app"), virtual_host(wildcard, "fallback")]},
+                        virtual_host(stream_host, "app"), virtual_host(argocd_host, "app"),
+                        virtual_host(wildcard, "fallback")]},
                     "http_filters": [{"name": "envoy.filters.http.router", "typed_config": {
                         "@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}],
                                       "clusters": clusters}}
@@ -238,6 +251,16 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                 {"name": "fallback", "paths": ["/"], "strip_path": False, "preserve_host": True}]}],
                 "certificates": [{"cert": (path / "tls.crt").read_text(), "key": (path / "tls.key").read_text(),
                                   "snis": [{"name": wildcard}, {"name": auth_host}] + [{"name": "*." + domain} for domain in protected_domains]}]}
+        argocd_annotations = argocd_ingress["metadata"]["annotations"]
+        argocd_auth = next(i["config"] for i in oauth_items
+                           if i["kind"] == "KongPlugin" and i["metadata"]["name"] == "sso-knative-nobuffer-domain")
+        kong["services"][1]["routes"].append({
+            "name": "argocd", "hosts": [argocd_host], "paths": ["/"], "strip_path": False,
+            "preserve_host": True, **buffering(argocd_annotations), "plugins": [
+                {"name": "session-auth", "config": argocd_auth},
+                {"name": argocd_error["plugin"], "config": argocd_error["config"]},
+            ],
+        })
         generated_services = {i["metadata"]["name"]: i for i in apps + generated_routes
                               if i["kind"] == "Service" and i["apiVersion"] == "v1"}
         for service, name_ in ((kong["services"][0], "hello-ssvc"), (kong["services"][1], "kourier-proxy")):
@@ -401,6 +424,15 @@ assert(res.status == 201, res.body)
             for uri in ("/oauth2/start", "/oauth2/callback", "/oauth2/sign_in", "/oauth2/sign_out"):
                 assert request(auth_host, uri, context=verified)[0] == 200, uri
             assert request(unknown_app, context=verified)[0] == 421
+            status, body, _ = request(argocd_host, "/proxy-error", context=verified)
+            assert (status, body) == (302, b"")
+            session = {"Cookie": "__Secure-infra_sso=fixture-valid"}
+            status, body, _ = request(argocd_host, "/proxy-error", context=verified, headers=session)
+            assert (status, body) == (502, b"Bad Gateway\n"), (status, body)
+            status, body, _ = request(argocd_host, "/status/502", context=verified, headers=session)
+            assert (status, body) == (502, b'{"application":"own response"}'), (status, body)
+            status, body, _ = request(stream_host, "/proxy-error", context=verified)
+            assert status == 502 and b"connection reset by peer" in body, (status, body)
             # A handshake must fail even when the client skips verification, so a
             # mismatched or default certificate cannot mask a missing SNI guard.
             diagnostic = ssl._create_unverified_context()

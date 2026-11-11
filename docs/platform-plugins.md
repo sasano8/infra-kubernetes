@@ -110,6 +110,12 @@ kubectl -n argocd get pods -l serving.knative.dev/service=argocd-server
 アクセスを止めて Pod が 0 件になったら、ブラウザで公開 URL を開いてログイン画面への復帰を確認する。
 SSO 経路では Google 認証後に確認する。最初のアクセスは起動完了まで待つ。
 
+Kourier から Argo CD の UI へは HTTP/1.1 で接続する。Argo CD の Knative Pod に対して、
+Redis・Repository Server・Dex の必要なポートだけを NetworkPolicy で許可する。
+
+Argo CD 経路で Knative の接続エラー形式に一致する `502` は、ブラウザに `Bad Gateway` と表示する。
+接続先やポートを含むエラー詳細は Knative の `queue-proxy` ログで確認する。
+
 ### Kustomize で管理する既存の NodePort 構成
 
 `plugins/argocd/` の Namespace と Helm inflator を使う既存環境では、

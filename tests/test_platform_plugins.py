@@ -79,7 +79,8 @@ class PlatformPluginTests(unittest.TestCase):
             install.assert_not_called()
             wait.assert_not_called()
             infra.apply_routes(cluster, output)
-            self.assertEqual(json.loads(cluster.calls[-1][1]["input"])["items"], [service, ingress])
+            applied = next(kwargs["input"] for args, kwargs in cluster.calls if args[0] == "apply" and "input" in kwargs)
+            self.assertEqual(json.loads(applied)["items"], [service, ingress])
 
             config["plugins"]["argocd"]["publish"] = False
             infra.render(config, output)
@@ -96,14 +97,15 @@ class PlatformPluginTests(unittest.TestCase):
             path.write_text(json.dumps(raw))
             config = infra.load(path)
             infra.render(config, output)
-            ingress, = json.loads((output / "argocd-routes.json").read_text())["items"]
+            error_plugin, ingress = json.loads((output / "argocd-routes.json").read_text())["items"]
+            self.assertEqual(error_plugin["metadata"]["name"], "argocd-gateway-error")
             host = "argocd-server-argocd-ksvc.knative-nobuffer.example.test"
             self.assertEqual(ingress["spec"]["tls"], [{"hosts": [host], "secretName": "knative-nobuffer-tls"}])
             rule, = ingress["spec"]["rules"]
             self.assertEqual(rule["host"], host)
             self.assertEqual(rule["http"]["paths"][0]["backend"]["service"]["name"], "kourier-proxy")
             self.assertEqual(ingress["metadata"]["annotations"]["konghq.com/plugins"],
-                             "strip-error-reason,sso-knative-nobuffer-domain")
+                             "strip-error-reason,sso-knative-nobuffer-domain,argocd-gateway-error")
 
             cluster = Cluster()
             with patch.object(plugins, "require_helm"), \
@@ -111,13 +113,14 @@ class PlatformPluginTests(unittest.TestCase):
                 plugins.install("argocd", cluster, config, lambda *_: None)
             self.assertIn("server.replicas=0,server.service.type=ClusterIP", helm.call_args.args)
             self.assertIn("configs.cm.url=https://" + host, helm.call_args.args)
-            service, = json.loads(cluster.calls[-1][1]["input"])["items"]
+            *policies, service = json.loads(cluster.calls[-1][1]["input"])["items"]
+            self.assertEqual(policies, plugins.argocd_knative_network_policies())
             self.assertEqual(service["apiVersion"], "serving.knative.dev/v1")
             self.assertEqual(service["metadata"]["labels"]["infra.sasano8.dev/route"], "knative_nobuffer_domain")
             template = service["spec"]["template"]
             self.assertEqual(template["metadata"]["annotations"]["autoscaling.knative.dev/min-scale"], "0")
             self.assertEqual(template["spec"]["serviceAccountName"], "argocd-server")
-            self.assertEqual(template["spec"]["containers"][0]["ports"], [{"name": "h2c", "containerPort": 8080}])
+            self.assertEqual(template["spec"]["containers"][0]["ports"], [{"name": "http1", "containerPort": 8080}])
             cluster.workloads = {"items": [{"kind": "Deployment", "metadata": {"name": "argo-cd-argocd-server"}}]}
             plugins.wait("argocd", cluster, config)
             self.assertIn("--for=jsonpath={.status.url}=http://" + host, cluster.calls[-1][0])

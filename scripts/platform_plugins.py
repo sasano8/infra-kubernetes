@@ -26,8 +26,12 @@ DEFAULTS = {"argocd": {"enabled": False}, "infisical": {"enabled": False}, "exte
                        "dry_run": False, "interval": "5m", "registry_secret": ""}}
 RESOURCE_IDENTITIES = (
     ("v1", "Service", "argocd-nobuffer-proxy", "test"),
+    ("configuration.konghq.com/v1", "KongPlugin", "argocd-gateway-error", "test"),
     ("networking.k8s.io/v1", "Ingress", "argocd-nobuffer", "test"),
     ("serving.knative.dev/v1", "Service", "argocd-server", "argocd"),
+    ("networking.k8s.io/v1", "NetworkPolicy", "argocd-knative-to-redis", "argocd"),
+    ("networking.k8s.io/v1", "NetworkPolicy", "argocd-knative-to-repo-server", "argocd"),
+    ("networking.k8s.io/v1", "NetworkPolicy", "argocd-knative-to-dex-server", "argocd"),
 )
 ARGOCD_KSERVICE = "argocd-server"
 
@@ -121,6 +125,24 @@ def render_argocd_routes(config, output, auth_plugin):
     plugins = "strip-error-reason"
     if auth_plugin:
         plugins += "," + auth_plugin
+    if route_id == "knative_nobuffer_domain":
+        # Knative's reverse proxy exposes its Go transport error in a plain-text 502.
+        items.append(resource("configuration.konghq.com/v1", "KongPlugin", "argocd-gateway-error", "test",
+            plugin="post-function", config={
+                "header_filter": ["""if kong.response.get_source() == "service" and kong.response.get_status() == 502
+    and kong.response.get_header("Content-Type") == "text/plain; charset=utf-8"
+    and kong.response.get_header("X-Content-Type-Options") == "nosniff" then
+    kong.ctx.plugin.replace_gateway_error = true
+    kong.response.clear_header("Content-Length")
+    kong.response.clear_header("Content-Encoding")
+    kong.response.set_header("Cache-Control", "no-store")
+end"""],
+                "body_filter": [r'''if kong.ctx.plugin.replace_gateway_error then
+    kong.ctx.plugin.replace_gateway_error = false
+    kong.response.set_raw_body("Bad Gateway\n")
+end'''],
+            }))
+        plugins += ",argocd-gateway-error"
     ingress["metadata"]["annotations"] = {
         "konghq.com/protocols": "https", "konghq.com/preserve-host": "true", "konghq.com/strip-path": "false",
         "konghq.com/plugins": plugins,
@@ -156,7 +178,8 @@ def argocd_knative_service(config, deployment):
     pod_spec = pod["spec"]
     container = copy.deepcopy(pod_spec["containers"][0])
     port = next(port["containerPort"] for port in container["ports"] if port["name"] == "server")
-    container["ports"] = [{"name": "h2c", "containerPort": port}]
+    # Argo CD's plaintext HTTP/2 listener serves native gRPC, not browser HTTP.
+    container["ports"] = [{"name": "http1", "containerPort": port}]
     container["env"] = [var for var in container["env"] if var["name"] != "ARGOCD_SERVER_INSECURE"]
     container["env"].append({"name": "ARGOCD_SERVER_INSECURE", "value": "true"})
     writable = {volume["name"] for volume in pod_spec["volumes"] if "emptyDir" in volume}
@@ -179,6 +202,17 @@ def argocd_knative_service(config, deployment):
     if not config["plugins"]["argocd"]["publish"]:
         labels["networking.knative.dev/visibility"] = "cluster-local"
     return service
+
+
+def argocd_knative_network_policies():
+    peer = {"podSelector": {"matchLabels": {"serving.knative.dev/service": ARGOCD_KSERVICE}}}
+    return [resource("networking.k8s.io/v1", "NetworkPolicy", "argocd-knative-to-" + component, "argocd", spec={
+        "podSelector": {"matchLabels": {"app.kubernetes.io/name": "argocd-" + component,
+                                         "app.kubernetes.io/instance": CHARTS["argocd"]["release"]}},
+        "policyTypes": ["Ingress"],
+        "ingress": [{"from": [peer], "ports": [{"port": port, "protocol": "TCP"} for port in ports]}],
+    }) for component, ports in (("redis", ("redis",)), ("repo-server", ("repo-server",)),
+                                ("dex-server", ("http", "grpc")))]
 
 
 def pinner_resources(config):
@@ -367,12 +401,14 @@ def install(name, cluster, config, ensure_namespaces):
                   "--labels", "infra.sasano8.dev/owner=infra-kubernetes", "--wait=false", "--timeout", "300s")
     if knative:
         deployment = cluster.get("deployment/argo-cd-argocd-server", "-n", "argocd")
-        owned_apply(cluster, [argocd_knative_service(config, deployment)])
+        owned_apply(cluster, argocd_knative_network_policies() + [argocd_knative_service(config, deployment)])
     elif name == "argocd" and existing:
         found = cluster.call("get", "crd/services.serving.knative.dev", "--ignore-not-found", "-o", "name",
                              capture_output=True, text=True)
         if found.stdout.strip():
             remove_owned(cluster, "ksvc/" + ARGOCD_KSERVICE, "argocd")
+        for policy in argocd_knative_network_policies():
+            remove_owned(cluster, "networkpolicy/" + policy["metadata"]["name"], "argocd")
 
 
 def wait(name, cluster, config=None):

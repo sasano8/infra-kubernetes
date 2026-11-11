@@ -38,4 +38,14 @@ for name, chart in plugins.CHARTS.items():
         server = next(item for item in objects if item["kind"] == "Service"
                       and item["metadata"]["name"] == "argo-cd-argocd-server")
         assert {port["port"]: port["nodePort"] for port in server["spec"]["ports"]} == {80: 30090, 443: 30091}
+        server_peer = {"podSelector": {"matchLabels": server["spec"]["selector"]}}
+        for policy in plugins.argocd_knative_network_policies():
+            spec = policy["spec"]
+            chart_policy = next(item for item in objects if item["kind"] == "NetworkPolicy"
+                                and item["spec"]["podSelector"] == spec["podSelector"])
+            chart_ingress = next(rule for rule in chart_policy["spec"]["ingress"] if server_peer in rule["from"])
+            assert spec["ingress"] == [{
+                "from": [{"podSelector": {"matchLabels": {"serving.knative.dev/service": "argocd-server"}}}],
+                "ports": chart_ingress["ports"],
+            }]
     print(name + ": pinned chart renders; namespaces, RBAC, and Service exposure verified")

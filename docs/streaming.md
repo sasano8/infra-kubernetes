@@ -11,6 +11,7 @@ Kong と Kourier を経由するリクエスト本文とレスポンスの転送
 でリクエスト本文を受信しながらバックエンドへ順次転送する方針とする。
 認証アプリ（`oauth2-proxy` など）と公開ドメイン（`knative_public`）では、各ルートの設定を使う。
 レスポンスは、バックエンドが返す `X-Accel-Buffering` に従って Kong が処理する。
+図は逐次転送の対象経路を示す。ヘッダーを省略したレスポンスは Kong のルート設定に従う。
 
 ```mermaid
 sequenceDiagram
@@ -20,30 +21,31 @@ sequenceDiagram
     participant B as バックエンド
     Note over Q: リクエスト・レスポンスとも本文全体をためずに順次転送
     C->>K: リクエストヘッダー
-    alt 逐次転送の対象となるアプリ
-        Note over K: 保護経路は認証後に転送
-        C->>K: リクエスト本文を送信
-        alt Knative
-            K->>Q: 受信中から本文を順次転送
-            Q->>B: 本文を順次転送
-            B-->>Q: レスポンスヘッダーと本文
-            Q-->>K: ヘッダーと本文を順次転送
-        else 通常 Service
-            K->>B: 受信中から本文を順次転送
-            B-->>K: レスポンスヘッダーと本文
-        end
-        alt X-Accel-Buffering が no
-            K-->>C: レスポンスを順次転送
-        else X-Accel-Buffering が yes
-            K-->>C: バッファリングを有効にして転送
-        else ヘッダー指定なし
-            K-->>C: ルートのレスポンス設定に従って転送
-        end
-    else 認証アプリ
-        K->>B: 認証ルートの設定に従って転送
-    else 公開ドメイン
-        K->>Q: 公開ルートの設定に従って転送
-        Q->>B: 本文を順次転送
+    opt 認証が必要な経路
+        Note over K: 認証を確認してからバックエンドに転送
+    end
+    C->>K: リクエスト本文を送り始める
+
+    alt Kourier 経由（Knative）・X-Accel-Buffering = yes
+        K->>Q: リクエスト本文を順次転送
+        Q->>B: リクエスト本文を順次転送
+        B-->>Q: X-Accel-Buffering: yes とレスポンス本文
+        Q-->>K: ヘッダーと本文を順次転送
+        K-->>C: レスポンスをバッファリングして転送
+    else Kourier 経由（Knative）・X-Accel-Buffering = no
+        K->>Q: リクエスト本文を順次転送
+        Q->>B: リクエスト本文を順次転送
+        B-->>Q: X-Accel-Buffering: no とレスポンス本文
+        Q-->>K: ヘッダーと本文を順次転送
+        K-->>C: レスポンスを順次転送
+    else Kourier なし（通常 Service）・X-Accel-Buffering = yes
+        K->>B: リクエスト本文を順次転送
+        B-->>K: X-Accel-Buffering: yes とレスポンス本文
+        K-->>C: レスポンスをバッファリングして転送
+    else Kourier なし（通常 Service）・X-Accel-Buffering = no
+        K->>B: リクエスト本文を順次転送
+        B-->>K: X-Accel-Buffering: no とレスポンス本文
+        K-->>C: レスポンスを順次転送
     end
 ```
 

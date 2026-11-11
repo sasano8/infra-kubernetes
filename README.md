@@ -222,6 +222,8 @@ make install-helm
 
 HTTPS・Google Workspace SSO・Argo CD・Infisical・pinnerを有効にした設定ファイルを配置する。
 経路ごとのドメイン・認証・bufferingはトップレベルの `routes` にまとめる。
+`upload_limits` に Kong の本文上限、タイムアウト、同時アップロード数を指定する。下の例は既定値で、`s3_hosts` には Kong 経由で使う S3 ホスト名を指定する。単位と適用範囲は [アップロード制限](docs/streaming.md#アップロード制限) を参照。
+通常経路でリクエスト本文のバッファリングを有効にしたい場合は、対象の経路に `"request_buffering": true` を追加する。
 旧形式の設定を使っている場合は [公開経路の設定と移動先](docs/route-configuration.md)を参照して書き換える。互換読み込みは行わない。
 `tls.email` は連絡先、`sso.email_domain` はログインを許可するWorkspaceのメールドメインに変更する。
 
@@ -248,6 +250,16 @@ cat > configs/environment/local.json <<'EOF'
     "argocd": {"enabled": true},
     "infisical": {"enabled": true},
     "pinner": {"enabled": true}
+  },
+  "upload_limits": {
+    "max_body_bytes": 110100480,
+    "client_body_idle_timeout_seconds": 30,
+    "upstream_connect_timeout_seconds": 5,
+    "upstream_send_idle_timeout_seconds": 30,
+    "upstream_read_idle_timeout_seconds": 330,
+    "max_concurrent_upload_requests": 5,
+    "upload_path_prefixes": ["/upload", "/uploads"],
+    "s3_hosts": []
   },
   "error_service": {"name": "platform-portal", "namespace": "test", "port": 8080},
   "kourier_service": "kourier.kourier-system.svc.cluster.local",

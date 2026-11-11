@@ -343,7 +343,7 @@ DNS は **DNS only** で Kong ホストに到達する公開 IP に向け、フ�
 
 ```bash
 ./bin/infra validate --require-https
-./bin/infra up --require-https
+make up  # 設定を適用し、サービスを起動・更新する
 ```
 
 以前のsudo実行で`.local`がroot所有になっている場合だけ、

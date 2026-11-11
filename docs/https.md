@@ -1,4 +1,4 @@
-# Caddy と同じ DNS-01 自動証明書発行
+# HTTPS・DNS・証明書
 
 cert-manager が Cloudflare DNS API を使って Let's Encrypt の証明書を発行・更新し、
 KIC が Secret の変更を Kong に反映する。Caddy と Cloudflare Tunnel は使わない。
@@ -71,83 +71,25 @@ Secret 値はログや生成マニフェストへ出力せず、API エラーに
 
 ## 3. 設定
 
-`configs/environment/local.json` にHTTPS・SSO有効の設定を配置する。
-`tls.email` は連絡先、`sso.email_domain` は許可するWorkspaceのメールドメインに変更する。
+[example.json](https://github.com/sasano8/infra-kubernetes/blob/main/configs/environment/example.json) の `tls` をベースに、環境設定の値を変更する。
 
-```json
-{
-  "mode": "new-host",
-  "node_port": null,
-  "tls": {
-    "enabled": true,
-    "email": "you@example.com",
-    "cloudflare_zone": "ys-method-dev.com",
-    "cloudflare_token_file": ".local/secrets/cloudflare-api-token",
-    "acme_server": "https://acme-v02.api.letsencrypt.org/directory",
-    "host_https_port": 443
-  },
-  "sso": {
-    "enabled": true,
-    "email_domain": "ys-method.com",
-    "auth_host": "auth.knative.tmp.ys-method-dev.com",
-    "cookie_domain": "tmp.ys-method-dev.com",
-    "cookie_expire_hours": 72,
-    "secret_file": ".local/secrets/google-sso.json"
-  },
-  "error_service": {"name": "platform-portal", "namespace": "test", "port": 8080},
-  "kourier_service": "kourier.kourier-system.svc.cluster.local",
-  "base_domain": "tmp.ys-method-dev.com",
-  "default_routes": {
-    "standard": "standard_domain",
-    "knative": "knative_domain"
-  },
-  "routes": {
-    "knative_public": {
-      "kind": "knative",
-      "domain": "knative-public.tmp.ys-method-dev.com",
-      "auth": "public",
-      "buffering": true
-    },
-    "standard_domain": {
-      "kind": "standard",
-      "domain": "standard.tmp.ys-method-dev.com",
-      "auth": "sso",
-      "buffering": true
-    },
-    "standard_nobuffer_domain": {
-      "kind": "standard",
-      "domain": "standard-nobuffer.tmp.ys-method-dev.com",
-      "auth": "sso",
-      "buffering": false
-    },
-    "knative_domain": {
-      "kind": "knative",
-      "domain": "knative.tmp.ys-method-dev.com",
-      "auth": "sso",
-      "buffering": true
-    },
-    "knative_nobuffer_domain": {
-      "kind": "knative",
-      "domain": "knative-nobuffer.tmp.ys-method-dev.com",
-      "auth": "sso",
-      "buffering": false
-    }
-  }
-}
-```
+| 項目 | 設定値 |
+| --- | --- |
+| `tls.enabled` | `true` |
+| `tls.email` | Let's Encrypt への連絡先 |
+| `tls.cloudflare_zone` | Cloudflare が管理する DNS ゾーン |
+| `tls.cloudflare_token_file` | トークンの保存先。例は `.local/secrets/cloudflare-api-token` |
+| `tls.acme_server` | 既定は Let's Encrypt production |
+| `tls.host_https_port` | ホストの HTTPS ポート。既定は `443` |
 
-`cloudflare_zone` は Cloudflare が管理する DNS ゾーンであり、`base_domain` や
-`knative_domain` と同じでなくてよい。
-`tls` の省略時は無効で、従来の HTTP 検証設定はそのまま使える。
-
-SSO用のGoogle callback登録と [Secretファイルの作成](sso.md#secret供給) も構築前に行う。
+5経路のベースドメインとワイルドカードがゾーンの範囲に入るようにする。
+SSO を有効にする場合は [Google callback と Secret](sso.md#secret供給) も構築前に準備する。
 
 ## 4. 構築・更新
 
 ```bash
-git pull origin main
 ./bin/infra validate --require-https
-./bin/infra up --require-https
+make up
 ```
 
 新規 VM でも既存の専用 VM でも同じコマンド。
@@ -163,7 +105,7 @@ TLS 有効時は cert-manager v1.19.1 を公式配布マニフェストから SH
 標準名の3 Deployment と必要 CRD の準備を確認して使用する。
 対応しない構成なら停止するため、共有環境の cert-manager を勝手に更新しない。
 
-専用 Namespace に名前付き Issuer と4つの Certificate を作成する。
+専用 Namespace に名前付き Issuer と5つの Certificate を作成する。
 
 | Certificate / Secret | 対象 |
 | --- | --- |
@@ -232,21 +174,11 @@ hostPort 使用時は Kong を Recreate で更新するため、更新中に一�
 
 ## 5. 確認
 
-外部端末から、証明書を検証したままアクセスする。`-k` は使用しない。
+外部端末から証明書検証を有効にしてアクセスする。保護経路の未認証ブラウザアクセスは302となる。
+認証前後の確認は [接続テスト](verification.md) を使う。
 
-```bash
-curl --fail-with-body --max-time 180 https://hello-test-ssvc.standard.tmp.ys-method-dev.com/get
-curl --fail-with-body --max-time 180 https://hello-test-ksvc.knative.tmp.ys-method-dev.com/get
-```
-
-期待する本文は go-httpbin の JSON（`headers.Host` が各公開ホスト）。
-ローカルの HTTP とスケールゼロ復帰は従来どおり確認できる。
-
-```bash
-python3 scripts/check-routes.py
-```
-
-証明書発行状況:
+証明書がまだ発行されていない場合や、Kong が自己署名証明書を返す場合は、
+Certificate の Ready、要求ホストの SNI、Ingress の `spec.tls.hosts` と Secret の対応を順に確認する。
 
 ```bash
 kubectl -n test get issuer,certificate,certificaterequest,orders,challenges
@@ -272,12 +204,4 @@ TLS を無効化しただけでは証明書・トークンを削除しない。
 TXT レコードの後片付けが終わるまで cert-manager を停止しない。
 cert-manager 本体と CRD は他用途に利用され得るため自動削除しない。
 
-証明書発行・更新・外部 HTTPS の実環境での動作は未確認。
-設定生成の確認は実際の ACME 発行の検証とは区別する。
-
-リソース名の移行では旧 Secret / ACME アカウントを所有確認後に引き継ぐ。
-新しい名前は `cloudflare-api-token` / `cloudflare-letsencrypt` / `letsencrypt-account`。
-詳細は [リソース名と移行](kic.md#用途に基づくリソース名) を参照。
-
-追加2ドメインも同じCloudflareゾーンの範囲内に指定し、DNS onlyでKongへ向ける。
-[4経路の構成](four-routes.md)のDNS一覧を参照。
+旧 Issuer や Secret の引き継ぎは [移行手順](cleanup.md#kongkic-と-tls-リソースの移行)を参照。

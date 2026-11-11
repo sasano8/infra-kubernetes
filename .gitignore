@@ -1,4 +1,6 @@
 /configs/environment/local.json
 /.local/
+/.venv/
+/site/
 __pycache__/
 *.pyc

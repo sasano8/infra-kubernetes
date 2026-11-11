@@ -144,7 +144,7 @@ Knative 経路では Kong とアプリの間に Kourier（Envoy）が入る。
 Kong Ingress には `konghq.com/request-buffering` と `konghq.com/response-buffering` を指定する。
 Knative への転送では Kourier に Host を保持して渡す。
 一般アプリへの公開ルート設定の自動反映は別課題（SAS-68）。
-[4経路の構成](four-routes.md)・[Kong の Ingress 設定](https://developer.konghq.com/kubernetes-ingress-controller/reference/annotations/)
+[4経路の構成](route-configuration.md)・[Kong の Ingress 設定](https://developer.konghq.com/kubernetes-ingress-controller/reference/annotations/)
 
 | 項目 | サンプルの設定値 |
 | --- | --- |

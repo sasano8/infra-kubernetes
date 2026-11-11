@@ -135,7 +135,7 @@ Knativeは新Revisionを作ってタグを解決し直す必要があり、Pod�
 pinnerはイメージ文字列を書き換えず、`spec.template.metadata.annotations`の
 `floatingtag-pinner/restartedAt`だけを変更する（field-manager：`floatingtag-pinner`）。
 
-Argo CDのApplicationには [ignoreDifferencesの設定例](../plugins/pinner/argocd-ignore-differences.yaml)を
+Argo CDのApplicationには [ignoreDifferencesの設定例](https://github.com/sasano8/infra-kubernetes/blob/main/plugins/pinner/argocd-ignore-differences.yaml)を
 取り込む。このannotationだけを無視し、`RespectIgnoreDifferences=true`も設定して
 selfHealと手動syncの両方で巻き戻さないようにする。既存のignoreDifferences／syncOptionsは保持する。
 イメージやmetadata全体を無視せず、通常のGit変更による更新は維持する。

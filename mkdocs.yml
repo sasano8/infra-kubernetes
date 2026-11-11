@@ -1,0 +1,42 @@
+site_name: infra-kubernetes
+repo_url: https://github.com/sasano8/infra-kubernetes
+
+theme:
+  name: material
+  language: ja
+  features:
+    - navigation.sections
+    - content.code.copy
+
+markdown_extensions:
+  - toc:
+      slugify: !!python/name:markdown.extensions.toc.slugify_unicode
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+
+nav:
+  - 概要: index.md
+  - 導入:
+      - 導入・設定適用: setup-details.md
+      - HTTPS・DNS・証明書: https.md
+      - 追加プラグイン: platform-plugins.md
+  - アプリ公開:
+      - 公開経路とルーティング: route-configuration.md
+      - SSO: sso.md
+      - ストリーミング: streaming.md
+      - エラー生成サービスの接続仕様: error-service.md
+  - 運用:
+      - 動作確認と障害切り分け: verification.md
+      - 移行・旧リソース整理・撤去: cleanup.md

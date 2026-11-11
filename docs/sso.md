@@ -1,8 +1,5 @@
 # Google Workspace SSO
 
-Kong・oauth2-proxy・Googleの役割と通信順序、Google側へのリダイレクトURI追加方法は
-[SSOのリダイレクトとcallbackの仕組み](sso-flow.md)を参照。
-
 ## 実装方式と範囲
 
 Kong OSS 3.9.1＋KIC 3.4.3に、リポジトリ内のLuaプラグイン `session-auth` を
@@ -23,10 +20,70 @@ SSOセッションCookieはアプリへの転送から除去するため、go-ht
 アプリログへセッションを漏らさない。アプリ固有のCookieは維持する。
 認証応答の分割Cookie・更新Cookieは、アプリのSet-Cookieと合わせて返す。
 
-この実装はソース・生成物・モックPDKで検証した。Kongコンテナ上の実動作、Googleの実ログイン、
-複数Host、セッション更新、HTTPS、スケールゼロ復帰、実通信の非バッファリングは未検証。
-この作業環境ではDockerソケットが使用できず、Google資格情報も設定されていない。
-自動テスト合格を本番運用検証完了として扱わない。
+## 初回ログインの流れ
+
+```mermaid
+sequenceDiagram
+    participant B as ブラウザ
+    participant K as Kong / session-auth
+    participant P as oauth2-proxy
+    participant G as Google
+    participant A as 通常 / Knativeアプリ
+    B->>K: アプリのGET /get（未認証）
+    K->>P: 内部GET /oauth2/auth（Cookieのみ）
+    P-->>K: 401
+    K-->>B: 302 Location: 認証ホスト/oauth2/start?rd=元URL
+    B->>K: 認証ホストのGET /oauth2/start
+    K->>P: OAuthルートで転送
+    P-->>B: Kong経由で302 Google認可URL（redirect_uri・state付き）
+    B->>G: Google認可URLへアクセス、ログイン・同意
+    G-->>B: 302 Location: 共通callback?code=...&state=...
+    B->>K: 認証ホストのGET /oauth2/callback
+    K->>P: OAuthルートでcallback要求を転送
+    P->>G: 認可コードをトークンへ交換（サーバー間通信）
+    G-->>P: トークン応答
+    P-->>B: Kong経由で共有Cookieを設定、302 元アプリURL
+    B->>K: 元のGET /get（共有Cookie付き）
+    K->>P: 内部GET /oauth2/auth（Cookieのみ）
+    P-->>K: 202、ユーザー情報
+    K->>A: 認証確認済みの要求を転送
+    A-->>B: Kong経由でアプリの応答
+```
+
+Googleの「転送」はブラウザへのHTTPリダイレクト。
+GoogleがKongへ直接callbackを送るわけではなく、Googleの応答を受けたブラウザがKongへアクセスする。
+一方、認可コードとトークンの交換はoauth2-proxyとGoogleのサーバー間通信で行う。
+Kongはその交換を実装せず、callbackのクエリをoauth2-proxyへ引き渡す。
+callbackのクエリには認可コードが含まれるため、調査時もURL全体を共有ログへ貼らない。
+
+### Kongが `/oauth2/callback` を処理する条件
+
+SSO有効時に生成する `test/oauth2-proxy` Ingressが、次の組み合わせを受け持つ。
+
+| 項目 | 設定 |
+| --- | --- |
+| Host | `sso.auth_host`：この例では `auth.knative.tmp.ys-method-dev.com` |
+| パス | `/` のPrefixルート。公開可能なOAuthパスは下記プラグインが制限 |
+| 転送先 | `test/oauth2-proxy` Service、ポート4180 |
+| TLS証明書 | この例では既存の `knative-wildcard-tls` Secret |
+| Kongプラグイン | `sso-oauth-endpoints`：OAuth用の公開パスと認証ホストを検証 |
+
+このOAuthルートでは通常のアプリ用セッション認証を要求せず、ログイン開始とcallbackを受け付ける。
+認証ホストで公開するパスは `/oauth2/start`、`/oauth2/callback`、`/oauth2/sign_in`、`/oauth2/sign_out`。
+ログイン画面は通常のKnativeアプリ `test/sso` として `knative_public` 経路に公開する。
+URLは `https://sso-test-ksvc.<knative_public>/`。KongがHTMLを返す特別処理はない。
+ボタンは認証ホストの `/oauth2/start` または `/oauth2/sign_out` を呼び、
+`rd` にログイン画面の絶対URLを指定して完了後に戻る。戻り先はoauth2-proxyのallowlistへ登録する。
+ページ表示だけでは認証を開始せず、セッション状態も表示しない。
+認証ホストの入口は `/` Prefixで全パスを受ける。`/` など未公開パスは認証用プラグインが404を返す。
+アプリから通常の認証を開始した場合は、従来どおり元アプリへ戻る。
+セッション確認用の `/oauth2/auth` はKongからクラスタ内部で呼び、外部OAuthルートでは拒否する。
+外部公開しないパスは404 `{"error":"path_not_found"}` を返す。
+認証プラグインの403応答は `{"message":"Access denied"}` とする。
+認証専用ホストにはKnative Serviceを作らず、Kourierも経由しない。
+
+Hostもルート選択の条件になるため、任意のアプリホストの `/oauth2/callback` を
+一律にoauth2-proxyへ転送するわけではない。旧構成のアプリ別callback登録は移行確認後に削除できる。
 
 ## 構築時の設定
 
@@ -103,8 +160,8 @@ Cookie共有親ドメインを設定できる。
 
 ## Googleクライアント・Cookie
 
-認証専用ホストにcallbackを集約する。READMEの構成では、Google OAuth Webクライアントの
-**承認済みのリダイレクトURI**へ次の1件だけを登録する。
+Google Auth Platform の「クライアント」で対象の OAuth 2.0 ウェブクライアントを開き、
+**承認済みのリダイレクトURI**に認証専用ホストの callback を登録する。
 
 ```text
 https://auth.knative.tmp.ys-method-dev.com/oauth2/callback
@@ -116,7 +173,7 @@ Ingressに明示する。Knative Serviceは作らない。既存のワイルド�
 認証専用Aレコードは不要。ただし同名レコードがある場合は到達先も確認する。
 `cookie_domain` は既定で `base_domain`、省略時は全経路の共通親ドメイン。
 認証ホストと全経路がこの共有範囲に入ることを設定検証する。
-ログイン・ログアウト画面は [knative_public](knative-public.md) 上の通常のKnativeアプリ。
+ログイン・ログアウト画面は [knative_public](route-configuration.md) 上の Knative アプリ `test/sso`。
 public経路でもログイン処理は同じoauth2-proxyを使うため、standardなどの保護アプリとセッションを共有する。
 非標準HTTPSポートを使う場合はGoogleへ登録するURLにもそのポートを含める。
 
@@ -125,6 +182,8 @@ oauth2-proxyのredirect URLはこの完全なURLに固定する。アプリへ�
 元のアプリのパス・クエリへ戻る。戻り先は既存の6つの公開Hostと公開ポートだけを
 allowlistへ登録し、親ドメイン全体を戻り先として許可しない。
 アプリ追加時は公開Hostのallowlistにも追加する。Googleのcallback追加登録は不要。
+`redirect_uri_mismatch` が出た場合は、使用中のクライアントの登録値とエラーの `redirect_uri` を、
+スキーム・ホスト・ポート・パス・末尾スラッシュまで照合する。
 KongプラグインがHTTPS、許可Host、公開してよいOAuthエンドポイントを確認し、
 転送ヘッダーを上書きする。Kong 3.9.1の `upstream_x_forwarded_host`／`proto`／`port` にも
 反映するため、Kong更新時はカスタムHTTPSポートを含めて実コンテナでも確認する。
@@ -251,7 +310,7 @@ make configure-secret-google-sso
 `secret_file` を省略した外部管理構成ではローカルファイルを作成しない。
 
 Google側の共通callback登録も済ませてから構築する。
-READMEの例では認証専用ホストの `/oauth2/callback` を1つ登録する。
+認証専用ホストの `/oauth2/callback` を1つ登録する。
 初回の一括構築は `make up` で行える。
 
 ### 資格情報だけを既存クラスタへ反映する

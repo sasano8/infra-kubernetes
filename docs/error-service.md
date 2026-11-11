@@ -102,7 +102,7 @@ Knativeコントローラーの正規probeは外部Kongを経由せずKourierへ
 
 ## 組み込みアプリと移行
 
-実装は [platform-portal/server.py](../apps/platform-portal/server.py)。Python標準ライブラリだけで動作する。
+実装は [platform-portal/server.py](https://github.com/sasano8/infra-kubernetes/blob/main/apps/platform-portal/server.py)。Python標準ライブラリだけで動作する。
 ローカルでプロトコルだけを試す場合は、次のサーバーを起動し、別ターミナルから呼び出せる。
 
 ```bash
@@ -126,4 +126,4 @@ python3 scripts/check-route-errors.py
 
 `up` は新しい転送設定を適用後、所有確認済みの旧 `route-errors` Deployment・Service・ConfigMapを削除する。
 入力設定にプロキシ別ポートの互換形式は設けない。旧 `{"error":"unknown_host"}` 形式の応答も維持しない。
-実クラスタのKIC／Knative反映確認は [ルーティングエラーの動作とテスト](routing-errors.md)を参照。
+実クラスタのKIC／Knative反映確認は [ルーティングエラーの動作とテスト](route-configuration.md)を参照。

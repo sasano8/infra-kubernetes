@@ -8,7 +8,7 @@ EDITOR ?= vi
 TEST_CONNECT_COOKIE_FILE ?= .local/secrets/test-cookie
 TEST_CONNECT_ARGS ?=
 
-.PHONY: test-connect test-connect-prepare test-connect-cleanup
+.PHONY: test-connect test-connect-prepare test-connect-cleanup docs docs-serve
 
 .PHONY: help backup-cni-podman install-k0s start-k0s stop-k0s status-k0s reset-k0s install-helm edit-config configure-secret-cloudflare-token configure-secret-google-sso rotate-cookie-secret-google-sso apply-secret-google-sso restart-deployment-oauth2-proxy wait-deployment-oauth2-proxy up
 
@@ -31,6 +31,8 @@ help:
 	  'make test-connect-prepare               Cookie取得方法を案内し、非表示入力で保存' \
 	  'make test-connect                       未認証・認証後のHTTPS接続を確認（既定40件）' \
 	  'make test-connect-cleanup               接続テスト用Cookieだけを削除' \
+	  'make docs                               MkDocsをビルドして文書リンクを検証' \
+	  'make docs-serve                         MkDocsをローカルでプレビュー' \
 	  '接続テスト変数: TEST_CONNECT_COOKIE_FILE=... TEST_CONNECT_ARGS="--via dns --timeout 180"' \
 	  '変数: CONFIG=... KUBECTL=kubectl SUDO=sudo EDITOR=vi'
 
@@ -91,3 +93,9 @@ test-connect:
 
 test-connect-cleanup:
 	@$(PYTHON) scripts/test-connect-cookie.py cleanup --cookie-file "$(TEST_CONNECT_COOKIE_FILE)"
+
+docs:
+	uv run --locked --only-group docs mkdocs build --strict
+
+docs-serve:
+	uv run --locked --only-group docs mkdocs serve --strict

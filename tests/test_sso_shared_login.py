@@ -180,7 +180,7 @@ class SharedLoginTests(unittest.TestCase):
                          [doc for doc in after.split("---") if "kind: Ingress\n" in doc])
         self.assertNotIn('login.knative.example.test', after)
         self.assertIn('login.knative.example.test', (self.path / 'sso.json').read_text())
-        self.assertEqual(before.count('konghq.com/request-buffering: "false"'), 2)
+        self.assertEqual(before.count('konghq.com/request-buffering: "false"'), 6)
         self.assertEqual(before.count('konghq.com/response-buffering: "false"'), 2)
 
 

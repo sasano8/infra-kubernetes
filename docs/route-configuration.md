@@ -62,15 +62,17 @@
 | `kind` | `standard`／`knative`。現在サポートする5経路の種別は固定 |
 | `domain` | その経路の公開ベースドメイン。全5経路で重複不可 |
 | `auth` | `sso`／`api`／`public`。`knative_public`は`public`専用 |
-| `buffering` | request／response両方のbuffering。JSONの`true`／`false` |
+| `buffering` | レスポンスバッファリングの既定値。JSONの `true`／`false` |
+| `request_buffering` | リクエスト本文のバッファリング。省略時は通常経路で `false`、`knative_public` で `buffering` の値 |
 
-5経路と各4項目をすべて明示する。追加の経路IDや未定義の項目は受け付けない。
+5経路の `kind`・`domain`・`auth`・`buffering` は必須。追加の経路IDや未定義の項目は受け付けない。
 `auth=sso` は未認証の画面アクセスをGoogle認証へ誘導し、APIパス・GET／HEAD以外などは401を返す。
 `auth=api` は未認証時に常に401。`auth=public` は認証せず転送する。
 SSOの共通スイッチ `sso.enabled=false` のときは、経路のauth設定にかかわらず認証を適用しない。
 
 認証基盤のGoogle接続・Cookie・Secretなどは `sso` に残す。`sso.routes` は使わない。
-bufferingの初期例は経路名に合わせているが、実際の動作は各 `buffering` の値から生成する。
+レスポンス側の既定値は `buffering` から生成する。既存設定で通常経路のリクエストバッファリングも有効にする場合は、`request_buffering: true` を明示する。
+サイズ・タイムアウト・同時数の既定値は [アップロード制限](streaming.md#アップロード制限) を参照。
 TLS Secret名は従来どおり維持する。
 
 ## アプリの経路選択

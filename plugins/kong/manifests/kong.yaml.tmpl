@@ -1,3 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-upload-limits
+  namespace: kong-system
+  labels: {infra.sasano8.dev/owner: infra-kubernetes}
+data:
+  upload-limits.conf: |
+$upload_limits_config
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,6 +21,8 @@ $rollout_strategy
   template:
     metadata:
       labels: {app: kong-ingress}
+      annotations:
+        infra.sasano8.dev/upload-limits: "$upload_limits_hash"
 $sso_pod_annotation
     spec:
       serviceAccountName: kong-ingress
@@ -29,6 +41,11 @@ $sso_env
             - {name: KONG_PROXY_ACCESS_LOG, value: "$proxy_access_log"}
             - {name: KONG_PROXY_ERROR_LOG, value: /dev/stderr}
             - {name: KONG_NGINX_WORKER_PROCESSES, value: "1"}
+            - {name: KONG_NGINX_HTTP_INCLUDE, value: "/etc/kong/infra/upload-limits.conf"}
+            - {name: KONG_NGINX_PROXY_CLIENT_MAX_BODY_SIZE, value: "$max_body_bytes"}
+            - {name: KONG_NGINX_PROXY_CLIENT_BODY_TIMEOUT, value: "${client_body_idle_timeout_seconds}s"}
+            - {name: KONG_NGINX_PROXY_LIMIT_CONN, value: "infra_uploads $max_concurrent_upload_requests"}
+            - {name: KONG_NGINX_PROXY_LIMIT_CONN_STATUS, value: "429"}
           ports:
             - {name: proxy, containerPort: 8000}
             - {name: status, containerPort: 8100}
@@ -44,6 +61,8 @@ $host_https_port_line
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: kong-upload-limits, mountPath: /etc/kong/infra, readOnly: true}
 $sso_mount
         - name: ingress-controller
           image: kong/kubernetes-ingress-controller:3.4.3
@@ -80,6 +99,8 @@ $sso_mount
             - {name: api-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
       volumes:
 $sso_volume
+        - name: kong-upload-limits
+          configMap: {name: kong-upload-limits}
         - name: api-token
           projected:
             sources:

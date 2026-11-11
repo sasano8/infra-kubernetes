@@ -38,8 +38,8 @@ class FourRouteDomains(unittest.TestCase):
     def test_four_rendered_routes_and_knative_selector(self):
         infra.render(self.load(), self.directory)
         routes = (self.directory / "routes.yaml").read_text()
-        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 5)
-        self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 2)
+        self.assertEqual(routes.count('konghq.com/request-buffering: "true"'), 1)
+        self.assertEqual(routes.count('konghq.com/request-buffering: "false"'), 6)
         self.assertEqual(routes.count('konghq.com/response-buffering: "true"'), 5)
         self.assertEqual(routes.count('konghq.com/response-buffering: "false"'), 2)
         for key in ("standard_domain", "standard_nobuffer_domain", "knative_domain", "knative_nobuffer_domain"):
@@ -70,7 +70,7 @@ class FourRouteDomains(unittest.TestCase):
                 reserved = re.findall(r'\bname:\s*[\"\']?(PORT|K_SERVICE|K_CONFIGURATION|K_REVISION)[\"\']?\s*[,}\n]', doc)
                 self.assertEqual(reserved, [], 'Knative injects reserved environment variables itself')
                 self.assertIn('containerPort: 8080', doc)
-                self.assertIn('name: MAX_BODY_SIZE, value: "67108864"', doc)
+                self.assertIn('name: MAX_BODY_SIZE, value: "104857600"', doc)
         deployment = documents[0]
         self.assertIn('name: PORT, value: "8080"', deployment)
 

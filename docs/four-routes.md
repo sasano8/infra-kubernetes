@@ -5,15 +5,15 @@
 
 | 種類 | 設定キー | サンプルの公開ホスト | Kong buffering |
 | --- | --- | --- | --- |
-| 通常 buffer | `standard_domain` | `hello-test-ssvc.<standard_domain>` | request／responseとも有効 |
+| 通常 buffer | `standard_domain` | `hello-test-ssvc.<standard_domain>` | request 無効／response 有効 |
 | 通常 nobuffer | `standard_nobuffer_domain` | `hello-test-ssvc.<standard_nobuffer_domain>` | request／responseとも無効 |
-| Knative buffer | `knative_domain` | `hello-test-ksvc.<knative_domain>` | request／responseとも有効 |
+| Knative buffer | `knative_domain` | `hello-test-ksvc.<knative_domain>` | request 無効／response 有効 |
 | Knative nobuffer | `knative_nobuffer_domain` | `hello-nobuffer-test-ksvc.<knative_nobuffer_domain>` | request／responseとも無効 |
 
 通常の2経路は同じ `hello-ssvc` に転送する。Knativeは同じgo-httpbinイメージを使う
 `hello` と `hello-nobuffer` の2サービスを設け、別々にスケールゼロ復帰を検証する。
-Kongの既存 `standard`／`hello` Ingressはbuffer有効に戻し、追加する
-`standard-nobuffer`／`hello-nobuffer` Ingressは無効とする。全経路でHostを保持する。
+4経路ともリクエスト本文を既定で逐次転送する。レスポンスは buffer 経路で既定で有効、
+nobuffer 経路で既定で無効。全経路で Host を保持する。
 現段階のIngressはこのサンプル用の個別ホストであり、任意アプリの自動公開はSAS-68の対象。
 
 ## 設定とDNS
@@ -69,7 +69,7 @@ metadata:
 
 | ルートID | 公開ドメイン設定 | 現在のルート特性 |
 | --- | --- | --- |
-| `knative_domain` | `knative_domain` | request／response buffering有効 |
+| `knative_domain` | `knative_domain` | request 無効／response 有効 |
 | `knative_nobuffer_domain` | `knative_nobuffer_domain` | request／response buffering無効 |
 | `knative_public` | `knative_public` | SSO不要、request／response buffering有効 |
 

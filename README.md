@@ -447,7 +447,7 @@ python3 scripts/prune-resources.py apply
 
 通常 Service と Knative の hello は、同じ `ghcr.io/mccutchen/go-httpbin:2.21.0` を使用する。
 リソース名・公開 URL は維持し、`/get` で疎通と Host 保持を確認する。
-既存ドメインは request／response buffering 有効、追加する nobuffer ドメインは無効。
+通常／Knative の4経路ではリクエスト本文を既定で逐次転送する。レスポンスのバッファリングの既定値は、buffer 経路で有効、nobuffer 経路で無効。
 `/headers`、`/drip`、`/stream-bytes`、`/upload` の確認方法は
 [ストリーミング検証](docs/streaming.md)を参照。アプリ別設定の自動反映は SAS-68 の別課題。
 
@@ -459,7 +459,7 @@ KnativeアプリはService本体の `metadata.labels` に
 SSOを要求しないアプリは `infra.sasano8.dev/route: knative_public` を指定する。
 この経路はワイルドカードでKourierへ転送するため、アプリごとのKong設定は不要。
 [公開Knative経路の設定とDNS](docs/knative-public.md)を参照。
-アプリがbufferingの真偽を指定するのではなく、通信特性は選択したルートの定義に従う。
+ラベルで公開ルートを選び、アプリはレスポンスに `X-Accel-Buffering` を付けてレスポンス単位の動作を指定できる。
 
 インストール時に `default_routes.standard` と `default_routes.knative` を選択できる。
 両方とも有効なルートが必須で、既定ルートの無効化は未対応。

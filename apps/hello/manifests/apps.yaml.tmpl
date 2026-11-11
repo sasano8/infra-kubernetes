@@ -17,9 +17,9 @@ spec:
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
             - {name: PORT, value: "8080"}
-            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_BODY_SIZE, value: "104857600"}
             - {name: MAX_DURATION, value: "60s"}
-            - {name: SRV_READ_TIMEOUT, value: "120s"}
+            - {name: SRV_READ_TIMEOUT, value: "300s"}
           ports:
             - {name: http, containerPort: 8080}
           readinessProbe:
@@ -39,8 +39,7 @@ metadata:
   name: hello-ssvc
   namespace: test
   annotations:
-    konghq.com/read-timeout: "180000"
-    konghq.com/write-timeout: "180000"
+$upload_upstream_annotations
     konghq.com/retries: "0"
 spec:
   selector: {app: hello-ssvc}
@@ -66,14 +65,14 @@ spec:
         autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
     spec:
       containerConcurrency: 10
-      timeoutSeconds: 120
+      timeoutSeconds: 300
       containers:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_BODY_SIZE, value: "104857600"}
             - {name: MAX_DURATION, value: "60s"}
-            - {name: SRV_READ_TIMEOUT, value: "120s"}
+            - {name: SRV_READ_TIMEOUT, value: "300s"}
           ports:
             - {containerPort: 8080}
           resources:
@@ -99,14 +98,14 @@ spec:
         autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
     spec:
       containerConcurrency: 10
-      timeoutSeconds: 120
+      timeoutSeconds: 300
       containers:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_BODY_SIZE, value: "104857600"}
             - {name: MAX_DURATION, value: "60s"}
-            - {name: SRV_READ_TIMEOUT, value: "120s"}
+            - {name: SRV_READ_TIMEOUT, value: "300s"}
           ports:
             - {containerPort: 8080}
           resources:
@@ -130,14 +129,14 @@ spec:
         autoscaling.knative.dev/scale-to-zero-pod-retention-period: "0s"
     spec:
       containerConcurrency: 10
-      timeoutSeconds: 120
+      timeoutSeconds: 300
       containers:
         - name: http
           image: ghcr.io/mccutchen/go-httpbin:2.21.0
           env:
-            - {name: MAX_BODY_SIZE, value: "67108864"}
+            - {name: MAX_BODY_SIZE, value: "104857600"}
             - {name: MAX_DURATION, value: "60s"}
-            - {name: SRV_READ_TIMEOUT, value: "120s"}
+            - {name: SRV_READ_TIMEOUT, value: "300s"}
           ports:
             - {containerPort: 8080}
           resources:

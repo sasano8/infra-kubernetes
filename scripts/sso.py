@@ -326,6 +326,7 @@ def render(c, output, route_ids):
         "tls": [{"hosts": [s["auth_host"]], "secretName": auth_certificate(c)}]})
     # OAuth is also an external entry: strip internal Knative hints before proxying.
     ingress["metadata"]["annotations"] = {"konghq.com/preserve-host": "true", "konghq.com/strip-path": "false",
+                                          "konghq.com/request-buffering": "false", "konghq.com/response-buffering": "true",
                                           "konghq.com/plugins": "strip-error-reason,sso-oauth-endpoints"}
     # Authentication is a Kong route to oauth2-proxy, not a Knative application.
     items.append(ingress)

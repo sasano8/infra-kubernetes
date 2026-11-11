@@ -17,7 +17,7 @@ API トークンは KIC コンテナだけにマウントする。
 | `test/standard-nobuffer` | `hello-test-ssvc.<standard_nobuffer_domain>` | `hello-ssvc` Service |
 | `test/hello-nobuffer` | `hello-nobuffer-test-ksvc.<knative_nobuffer_domain>` | `kourier-proxy` Service |
 
-既存2ルートはrequest／response buffering有効、nobufferの2ルートは無効。
+4経路のリクエストは既定で逐次転送する。レスポンスのバッファリングは buffer 経路で既定で有効、nobuffer 経路で既定で無効。
 Knativeのドメイン選択・既存設定移行は [4経路の構成](four-routes.md)を参照。
 
 `kourier-proxy` は `kourier_service` を指す ExternalName Service。

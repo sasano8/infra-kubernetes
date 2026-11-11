@@ -19,6 +19,7 @@ import tls
 import inventory
 import sso
 import platform_plugins
+import upload_limits
 
 ROOT = Path(__file__).resolve().parents[1]
 K0S = "v1.34.3+k0s.0"
@@ -80,7 +81,7 @@ def load(path):
     c.setdefault("base_domain", None)
     required = {"mode", "routes", "kourier_service", "node_port"}
     missing = required - set(c)
-    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins", "error_service"}
+    unknown = set(c) - required - {"base_domain", "tls", "default_routes", "sso", "plugins", "error_service", "upload_limits"}
     if missing or unknown:
         errors = []
         if missing:
@@ -108,7 +109,8 @@ def load(path):
             raise ValueError("error_service." + field + ": DNSラベルを指定してください")
     if type(endpoint["port"]) is not int or not 1 <= endpoint["port"] <= 65535:
         raise ValueError("error_service.port は1〜65535の整数です")
-    if endpoint["namespace"] == "test" and endpoint["name"] in ("error-service", "route-errors", "kourier-proxy"):
+    if endpoint["namespace"] == "test" and endpoint["name"] in (
+            "error-service", "route-errors", "kourier-proxy", "kourier-public-proxy"):
         raise ValueError("error_service: alias自身・旧エラーService・Kourierを転送先には指定できません")
     if (endpoint["name"] + "." + endpoint["namespace"] == ".".join(c["kourier_service"].split(".")[:2])
             or (endpoint["name"], endpoint["namespace"]) == ("kong-proxy", "kong-system")):
@@ -118,8 +120,9 @@ def load(path):
         raise ValueError("routesには5つの公開経路IDを指定してください: " + ", ".join(PUBLIC_ROUTES))
     for route_id, route in c["routes"].items():
         label = "routes." + route_id
-        if not isinstance(route, dict) or set(route) != {"kind", "domain", "auth", "buffering"}:
-            raise ValueError(label + " は kind / domain / auth / buffering を指定してください")
+        route_fields = {"kind", "domain", "auth", "buffering"}
+        if not isinstance(route, dict) or not route_fields <= route.keys() <= route_fields | {"request_buffering"}:
+            raise ValueError(label + " は kind / domain / auth / buffering と任意の request_buffering を指定してください")
         if route["kind"] != PUBLIC_ROUTES[route_id]["kind"]:
             raise ValueError(label + ".kind: " + PUBLIC_ROUTES[route_id]["kind"] + "を指定してください")
         dns_name(route["domain"], label + ".domain")
@@ -129,6 +132,8 @@ def load(path):
             raise ValueError(label + ".auth は sso / api / public を指定してください")
         if type(route["buffering"]) is not bool:
             raise ValueError(label + ".buffering は true / false を指定してください")
+        if "request_buffering" in route and type(route["request_buffering"]) is not bool:
+            raise ValueError(label + ".request_buffering は true / false を指定してください")
     if c["routes"]["knative_public"]["auth"] != "public":
         raise ValueError("knative_public はpublic専用経路です")
     domains = [route["domain"] for route in c["routes"].values()]
@@ -148,6 +153,7 @@ def load(path):
     tls.normalize(c)
     sso.normalize(c)
     platform_plugins.normalize(c)
+    upload_limits.normalize(c, dns_name)
     return c
 
 
@@ -172,7 +178,7 @@ def configure(path):
         auth = input(f"{route_id} の認証 sso / api / public [{route['auth']}]: ").strip()
         if auth:
             route["auth"] = auth
-        buffering = input(f"{route_id} のbuffering true / false [{str(route['buffering']).lower()}]: ").strip()
+        buffering = input(f"{route_id} のレスポンス buffering true / false [{str(route['buffering']).lower()}]: ").strip()
         if buffering not in ("", "true", "false"):
             raise ValueError("buffering は true / false")
         if buffering:
@@ -244,6 +250,8 @@ def render(c, output):
     for route, definition in c["routes"].items():
         prefix = route.removesuffix("_domain")
         values[prefix + "_buffering"] = str(definition["buffering"]).lower()
+        request_buffering = definition.get("request_buffering", route == "knative_public" and definition["buffering"])
+        values[prefix + "_request_buffering"] = str(request_buffering).lower()
     domains = knative_domain_data(c)
     values["knative_domain_entries"] = "\n".join(
         "  " + json.dumps(domain) + ": " + json.dumps(selector) for domain, selector in domains.items())
@@ -254,6 +262,7 @@ def render(c, output):
         host = prefix + c["routes"][route]["domain"]
         values[kind + "_default_host"] = host
         values[kind + "_default_buffering"] = str(definition["buffering"]).lower()
+        values[kind + "_default_request_buffering"] = values[route.removesuffix("_domain") + "_request_buffering"]
         values[kind + "_default_tls"] = (
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
@@ -273,17 +282,25 @@ def render(c, output):
     for kind in ("standard", "knative"):
         values[kind + "_default_auth"] = auth_annotation(resolve_route(c, kind))
     values["error_service_port"] = c["error_service"]["port"]
+    values["knative_default_backend"] = ("kourier-public-proxy" if resolve_route(c, "knative") == "knative_public"
+                                         else "kourier-proxy")
+    limits_config = upload_limits.nginx_config(c)
+    values.update(c["upload_limits"])
+    values["upload_limits_config"] = "\n".join("    " + line if line else "" for line in limits_config.splitlines())
+    values["upload_limits_hash"] = hashlib.sha256(limits_config.encode()).hexdigest()
+    values["upload_upstream_annotations"] = "\n".join(
+        f'    {key}: "{value}"' for key, value in upload_limits.upstream_annotations(c).items())
     enabled = c["sso"]["enabled"]
     values["sso_env"] = ('            - {name: KONG_PLUGINS, value: "bundled,session-auth"}\n'
                          '            - {name: KONG_LUA_PACKAGE_PATH, value: "/opt/?.lua;;"}' if enabled else "")
     values["proxy_access_log"] = "/dev/stdout sso_safe" if enabled else "/dev/stdout"
     if enabled:
         values["sso_env"] += '\n            - {name: KONG_NGINX_HTTP_LOG_FORMAT, value: "sso_safe \'$remote_addr $request_method $uri $status\'"}'
-    values["sso_mount"] = ('          volumeMounts:\n            - {name: session-auth-code, mountPath: /opt/kong/plugins/session-auth, readOnly: true}' if enabled else "")
+    values["sso_mount"] = ('            - {name: session-auth-code, mountPath: /opt/kong/plugins/session-auth, readOnly: true}' if enabled else "")
     values["sso_volume"] = ('        - name: session-auth-code\n          configMap: {name: session-auth-code}' if enabled else "")
     # Updating plugin files must roll Kong so Lua module caches cannot retain old code.
     plugin_hash = hashlib.sha256("".join(p.read_text() for p in sorted((ROOT / "plugins/sso/kong/plugins/session-auth").glob("*.lua"))).encode()).hexdigest()
-    values["sso_pod_annotation"] = ('      annotations: {infra.sasano8.dev/sso-code: "' + plugin_hash + '"}' if enabled else "")
+    values["sso_pod_annotation"] = ('        infra.sasano8.dev/sso-code: "' + plugin_hash + '"' if enabled else "")
     for name in MANIFESTS:
         text = MANIFESTS[name].read_text()
         (output / f"{name}.yaml").write_text(string.Template(text).substitute(values))

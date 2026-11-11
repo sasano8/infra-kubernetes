@@ -68,7 +68,7 @@ class RouteConfiguration(unittest.TestCase):
 
     def test_buffering_and_auth_are_generated_from_the_route_not_its_name(self):
         self.raw["routes"]["standard_domain"].update(buffering=False, auth="api")
-        self.raw["routes"]["knative_nobuffer_domain"].update(buffering=True, auth="public")
+        self.raw["routes"]["knative_nobuffer_domain"].update(buffering=True, request_buffering=True, auth="public")
         config = self.load()
         infra.render(config, self.directory)
         documents = (self.directory / "routes.yaml").read_text().split("---")
@@ -85,3 +85,32 @@ class RouteConfiguration(unittest.TestCase):
         plan = sso.test_plan(config, "markdown")
         self.assertIn("standard.example.test/get — 未認証期待HTTP 401", plan)
         self.assertIn("knative-nobuffer.example.test/get — 未認証期待HTTP 200", plan)
+
+    def test_upload_limit_config_validates_values_and_retains_legacy_defaults(self):
+        self.raw.pop("upload_limits")
+        self.assertEqual(self.load()["upload_limits"]["max_body_bytes"], 105 * 1024 * 1024)
+        for overrides in ({"max_body_bytes": 0}, {"max_concurrent_upload_requests": True},
+                          {"upstream_connect_timeout_seconds": 76}, {"typo": 1},
+                          {"s3_hosts": ["bad host"]}, {"upload_path_prefixes": ["/a/../upload"]},
+                          {"upload_path_prefixes": ["/upload\n;#"]}):
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "upload_limits"):
+                self.load(dict(self.raw, upload_limits=overrides))
+
+    def test_oauth_buffers_responses_and_public_keeps_its_route_setting(self):
+        self.raw["default_routes"]["knative"] = "knative_public"
+        self.raw["upload_limits"].update(upstream_read_idle_timeout_seconds=450)
+        config = self.load()
+        infra.render(config, self.directory)
+        routes = (self.directory / "routes.yaml").read_text().split("---")
+        for name in ("hello-default", "knative-public"):
+            route = next(doc for doc in routes if f"  name: {name}\n" in doc)
+            self.assertIn('konghq.com/request-buffering: "true"', route)
+            self.assertIn("name: kourier-public-proxy", route)
+        app = next(doc for doc in routes if "  name: kourier-proxy\n" in doc)
+        public = next(doc for doc in routes if "  name: kourier-public-proxy\n" in doc)
+        self.assertIn('konghq.com/read-timeout: "450000"', app)
+        self.assertIn('konghq.com/read-timeout: "180000"', public)
+        items = json.loads((self.directory / "sso.json").read_text())["items"]
+        oauth = next(i for i in items if i["kind"] == "Ingress" and i["metadata"]["name"] == "oauth2-proxy")
+        self.assertEqual(oauth["metadata"]["annotations"]["konghq.com/request-buffering"], "false")
+        self.assertEqual(oauth["metadata"]["annotations"]["konghq.com/response-buffering"], "true")

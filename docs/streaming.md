@@ -5,10 +5,10 @@ Kong と Kourier を経由するリクエスト本文とレスポンスの転送
 
 ## リクエストの逐次転送とレスポンスの制御方針
 
-この節は導入方針を示す。現在のサンプル設定は [現行の検証構成](#現行の検証構成) を参照。
+サンプル経路の実際の設定値は [現行の検証構成](#現行の検証構成) を参照。
 
 アプリ向け経路では、認証が必要な場合は先に認証を行い、`konghq.com/request-buffering: "false"`
-でリクエスト本文を受信しながらバックエンドへ順次転送する方針とする。
+でリクエスト本文を受信しながらバックエンドへ順次転送する。
 認証アプリにもリクエストの逐次転送を適用し、レスポンスはバッファリングを有効にする。
 自前の認証アプリは `X-Accel-Buffering: yes` を返す。`oauth2-proxy` は Kong の認証 Ingress で
 `konghq.com/response-buffering: "true"` を指定する。
@@ -134,7 +134,7 @@ Knative 経路では Kong とアプリの間に Kourier（Envoy）が入る。
 
 | サンプルの経路 | リクエストバッファリング | レスポンスバッファリング |
 | --- | --- | --- |
-| 通常／Knative の buffer | `true` | `true` |
+| 通常／Knative の buffer | `false` | `true` |
 | 通常／Knative の nobuffer | `false` | `false` |
 
 Kong Ingress には `konghq.com/request-buffering` と `konghq.com/response-buffering` を指定する。
@@ -144,10 +144,36 @@ Knative への転送では Kourier に Host を保持して渡す。
 
 | 項目 | サンプルの設定値 |
 | --- | --- |
-| アプリの本文上限 | 64 MiB |
+| アプリの本文上限 | 100 MiB |
 | 遅延レスポンスの上限 | 60秒 |
-| アプリの読み取り期限・Knative のリクエスト期限 | 120秒 |
-| Kong の上流への読み書きタイムアウト | 180秒 |
+| アプリの読み取り期限・Knative のリクエスト期限 | 300秒 |
+
+## アップロード制限
+
+環境設定の `upload_limits` に、サイズ・タイムアウト・同時数を指定する。
+省略した項目には次の値を使う。全体を反映するには `make up` を実行する。
+
+```json
+{
+  "upload_limits": {
+    "max_body_bytes": 110100480,
+    "client_body_idle_timeout_seconds": 30,
+    "upstream_connect_timeout_seconds": 5,
+    "upstream_send_idle_timeout_seconds": 30,
+    "upstream_read_idle_timeout_seconds": 330,
+    "max_concurrent_upload_requests": 5,
+    "upload_path_prefixes": ["/upload", "/uploads"],
+    "s3_hosts": []
+  }
+}
+```
+
+- **本文の上限と受信間隔**。Kong のプロキシ入口では、1 HTTP リクエストにつき 105 MiB を超えると 413 を返す。本文の受信が30秒止まると接続を閉じる。受信間隔はアップロード全体の制限時間とは別に扱う。
+- **上流へのタイムアウト**。通常アプリ向けの `hello-ssvc` と `kourier-proxy` には、接続5秒、書き込み間隔30秒、読み取り間隔330秒を適用する。Kourier へは Service 単位で適用するため、同じ Service を使う経路にもかかる。`knative_public` には別の Service を使い、従来のタイムアウトを適用する。別途登録する S3 用 Service の上流タイムアウトは、その Service のアノテーションで設定する。
+- **同時数**。設定したパスに対する `POST`・`PUT`・`PATCH` と、`s3_hosts` に列挙したホストへの `PUT` を、Kong 1台につき合計5件まで受け付ける。6件目は429になる。パスは完全一致または配下へのリクエストを数える。認証ホストと公開ドメインは通常アプリ向けのパス判定から除く。Kong を複数台にした場合は各台でカウントする。
+
+通常 API の本文上限2 MiB やファイル1個100 MiBなど、API ごとの上限はアプリ側で適用する。
+`s3_hosts` は既存の Kong 経由の S3 ホストを同時数の対象に加えるために使う。
 
 ## S3 のマルチパートアップロードとサイズ上限
 

@@ -89,7 +89,7 @@ class SSOTests(unittest.TestCase):
         plugins=[x for x in json.loads((self.path/'sso.json').read_text())['items'] if x['kind']=='KongPlugin']
         self.assertEqual(next(p['config']['mode'] for p in plugins if p['metadata']['name']=='sso-standard-domain'),'public')
         self.assertEqual(next(p['config']['mode'] for p in plugins if p['metadata']['name']=='sso-knative-nobuffer-domain'),'api')
-        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/request-buffering: "false"'),2)
+        self.assertEqual((self.path/'routes.yaml').read_text().count('konghq.com/request-buffering: "false"'),6)
 
     def test_secret_file_is_private_valid_and_never_rendered(self):
         p=self.fixture_secret();c=self.config();sso.preflight(c,None);infra.render(c,self.path)

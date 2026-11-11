@@ -28,6 +28,13 @@ class Cluster:
 
     def get(self, *args):
         self.calls.append((args, {}))
+        if args[0] == "deployment/argo-cd-argocd-server":
+            return {"spec": {"template": {"metadata": {}, "spec": {
+                "serviceAccountName": "argocd-server", "volumes": [], "containers": [{
+                    "name": "server", "image": "quay.io/argoproj/argocd:v3.5.3",
+                    "ports": [{"name": "server", "containerPort": 8080}], "env": [], "volumeMounts": [],
+                }],
+            }}}}
         return self.workloads
 
 
@@ -44,14 +51,14 @@ class PlatformPluginTests(unittest.TestCase):
             plugins.up(Cluster(), c, lambda *args: None)
         install.assert_not_called()
 
-    def test_argocd_install_and_publication_use_nobuffer_tls_and_sso(self):
+    def test_legacy_argocd_publish_only_uses_standard_nobuffer(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             config_path = output / "config.json"
             raw = json.loads((ROOT / "configs/environment/example.json").read_text())
             raw["tls"].update(enabled=True, email="admin@example.test", cloudflare_zone="example.test")
             raw["sso"].update(enabled=True, email_domain="example.test")
-            raw["plugins"]["argocd"] = {"enabled": True, "publish": True}
+            raw["plugins"]["argocd"] = {"enabled": False, "publish": True}
             config_path.write_text(json.dumps(raw))
             config = infra.load(config_path)
             infra.render(config, output)
@@ -69,14 +76,51 @@ class PlatformPluginTests(unittest.TestCase):
             cluster = Cluster()
             with patch.object(plugins, "install") as install, patch.object(plugins, "wait") as wait:
                 plugins.up(cluster, config, infra.ensure_namespaces)
-            install.assert_called_once_with("argocd", cluster, config, infra.ensure_namespaces)
-            wait.assert_called_once_with("argocd", cluster)
+            install.assert_not_called()
+            wait.assert_not_called()
             infra.apply_routes(cluster, output)
             self.assertEqual(json.loads(cluster.calls[-1][1]["input"])["items"], [service, ingress])
 
             config["plugins"]["argocd"]["publish"] = False
             infra.render(config, output)
             self.assertFalse(target.exists())
+
+    def test_argocd_knative_route_and_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            path = output / "config.json"
+            raw = json.loads((ROOT / "configs/environment/example.json").read_text())
+            raw["tls"].update(enabled=True, email="admin@example.test", cloudflare_zone="example.test")
+            raw["sso"].update(enabled=True, email_domain="example.test")
+            raw["plugins"]["argocd"] = {"enabled": True}
+            path.write_text(json.dumps(raw))
+            config = infra.load(path)
+            infra.render(config, output)
+            ingress, = json.loads((output / "argocd-routes.json").read_text())["items"]
+            host = "argocd-server-argocd-ksvc.knative-nobuffer.example.test"
+            self.assertEqual(ingress["spec"]["tls"], [{"hosts": [host], "secretName": "knative-nobuffer-tls"}])
+            rule, = ingress["spec"]["rules"]
+            self.assertEqual(rule["host"], host)
+            self.assertEqual(rule["http"]["paths"][0]["backend"]["service"]["name"], "kourier-proxy")
+            self.assertEqual(ingress["metadata"]["annotations"]["konghq.com/plugins"],
+                             "strip-error-reason,sso-knative-nobuffer-domain")
+
+            cluster = Cluster()
+            with patch.object(plugins, "require_helm"), \
+                 patch.object(plugins, "helm_call", return_value=SimpleNamespace(stdout="[]")) as helm:
+                plugins.install("argocd", cluster, config, lambda *_: None)
+            self.assertIn("server.replicas=0,server.service.type=ClusterIP", helm.call_args.args)
+            self.assertIn("configs.cm.url=https://" + host, helm.call_args.args)
+            service, = json.loads(cluster.calls[-1][1]["input"])["items"]
+            self.assertEqual(service["apiVersion"], "serving.knative.dev/v1")
+            self.assertEqual(service["metadata"]["labels"]["infra.sasano8.dev/route"], "knative_nobuffer_domain")
+            template = service["spec"]["template"]
+            self.assertEqual(template["metadata"]["annotations"]["autoscaling.knative.dev/min-scale"], "0")
+            self.assertEqual(template["spec"]["serviceAccountName"], "argocd-server")
+            self.assertEqual(template["spec"]["containers"][0]["ports"], [{"name": "h2c", "containerPort": 8080}])
+            cluster.workloads = {"items": [{"kind": "Deployment", "metadata": {"name": "argo-cd-argocd-server"}}]}
+            plugins.wait("argocd", cluster, config)
+            self.assertIn("--for=jsonpath={.status.url}=http://" + host, cluster.calls[-1][0])
 
     def test_eso_cannot_be_enabled_in_up(self):
         with self.assertRaisesRegex(ValueError, "ESO"):

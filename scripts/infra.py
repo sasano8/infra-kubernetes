@@ -231,6 +231,17 @@ def render(c, output):
         + "\n      secretName: " + PUBLIC_ROUTES[route]["secret"]
         for route, definition in c["routes"].items()
     ) if c["tls"]["enabled"] else "")
+    lua_paths = []
+    sni_code = ""
+    if c["tls"]["enabled"]:
+        sni_domains = "\n".join("    [" + json.dumps(route["domain"]) + "] = true,"
+                                 for route in c["routes"].values())
+        template = ROOT / "plugins/kong/tls-sni/kong.lua.tmpl"
+        sni_code = string.Template(template.read_text()).substitute(tls_sni_domains=sni_domains)
+        lua_paths.append("/etc/kong/infra/?.lua")
+    values["tls_sni_config"] = ("  kong.lua: |\n" + "\n".join("    " + line if line else "" for line in sni_code.splitlines())
+                                if sni_code else "")
+    values["tls_sni_hash"] = hashlib.sha256(sni_code.encode()).hexdigest()
     values.update(
         service_type="NodePort" if c["node_port"] else "ClusterIP",
         node_port_line=f"      nodePort: {c['node_port']}" if c["node_port"] else "",
@@ -267,7 +278,7 @@ def render(c, output):
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
     route_plugins = sso.render(c, output, c["routes"])
-    platform_plugins.render_argocd_routes(c, output, route_plugins.get("standard_nobuffer_domain"))
+    platform_plugins.render_argocd_routes(c, output, route_plugins.get(platform_plugins.argocd_route_id(c)))
     def auth_annotation(route):
         plugins = ["strip-error-reason"]
         if route in route_plugins:
@@ -292,11 +303,13 @@ def render(c, output):
     values["upload_upstream_annotations"] = "\n".join(
         f'    {key}: "{value}"' for key, value in upload_limits.upstream_annotations(c).items())
     enabled = c["sso"]["enabled"]
-    values["sso_env"] = ('            - {name: KONG_PLUGINS, value: "bundled,session-auth"}\n'
-                         '            - {name: KONG_LUA_PACKAGE_PATH, value: "/opt/?.lua;;"}' if enabled else "")
+    values["sso_env"] = '            - {name: KONG_PLUGINS, value: "bundled,session-auth"}' if enabled else ""
     values["proxy_access_log"] = "/dev/stdout sso_safe" if enabled else "/dev/stdout"
     if enabled:
+        lua_paths.append("/opt/?.lua")
         values["sso_env"] += '\n            - {name: KONG_NGINX_HTTP_LOG_FORMAT, value: "sso_safe \'$remote_addr $request_method $uri $status\'"}'
+    values["lua_package_env"] = ('            - {name: KONG_LUA_PACKAGE_PATH, value: "' + ";".join(lua_paths) + ';;"}'
+                                 if lua_paths else "")
     values["sso_mount"] = ('            - {name: session-auth-code, mountPath: /opt/kong/plugins/session-auth, readOnly: true}' if enabled else "")
     values["sso_volume"] = ('        - name: session-auth-code\n          configMap: {name: session-auth-code}' if enabled else "")
     # Updating plugin files must roll Kong so Lua module caches cannot retain old code.
@@ -971,7 +984,7 @@ def main():
         return
     cluster = Cluster(args.kubectl)
     if args.action == "plugin" and args.plugin_action == "wait":
-        platform_plugins.wait(args.plugin_name, cluster)
+        platform_plugins.wait(args.plugin_name, cluster, c)
         return
     if args.action in PHASE_ACTIONS or args.action == "plugin":
         run_phase(args.action, cluster, c, args.output, args.plugin_name)

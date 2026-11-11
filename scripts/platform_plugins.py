@@ -21,13 +21,15 @@ CHARTS = {
     "external-secrets": {"namespace": "external-secrets", "release": "external-secrets", "chart": "external-secrets",
                          "version": "2.11.0", "repo": "https://charts.external-secrets.io"},
 }
-DEFAULTS = {"argocd": {"enabled": False, "publish": False}, "infisical": {"enabled": False}, "external-secrets": {},
+DEFAULTS = {"argocd": {"enabled": False}, "infisical": {"enabled": False}, "external-secrets": {},
             "pinner": {"enabled": False, "image": "ghcr.io/sasano8/pinner:latest",
                        "dry_run": False, "interval": "5m", "registry_secret": ""}}
 RESOURCE_IDENTITIES = (
     ("v1", "Service", "argocd-nobuffer-proxy", "test"),
     ("networking.k8s.io/v1", "Ingress", "argocd-nobuffer", "test"),
+    ("serving.knative.dev/v1", "Service", "argocd-server", "argocd"),
 )
+ARGOCD_KSERVICE = "argocd-server"
 
 
 def dns_label(value):
@@ -40,16 +42,22 @@ def normalize(config):
         raise ValueError("plugins は argocd / infisical / external-secrets / pinner を指定してください")
     result = copy.deepcopy(DEFAULTS)
     for name, options in supplied.items():
-        if not isinstance(options, dict) or set(options) - set(DEFAULTS[name]):
+        allowed = set(DEFAULTS[name]) | ({"publish"} if name == "argocd" else set())
+        if not isinstance(options, dict) or set(options) - allowed:
             raise ValueError("plugins." + name + " に未対応の設定があります（ESOはupの対象外です）")
         result[name].update(options)
     for name in STANDARD:
         if type(result[name]["enabled"]) is not bool:
             raise ValueError("plugins." + name + ".enabled はtrue / falseです")
-    if type(result["argocd"]["publish"]) is not bool:
+    argocd = result["argocd"]
+    tls_enabled = config.get("tls", {}).get("enabled", False)
+    # Preserve an explicitly private or externally installed Argo CD in older settings.
+    argocd.setdefault("publish", argocd["enabled"] and tls_enabled)
+    if type(argocd["publish"]) is not bool:
         raise ValueError("plugins.argocd.publish はtrue / falseです")
-    if result["argocd"]["publish"]:
-        if not config["tls"]["enabled"]:
+    config["plugins"] = result
+    if argocd["publish"]:
+        if not tls_enabled:
             raise ValueError("Argo CD の公開には tls.enabled=true が必要です")
         if argocd_host(config) == config["sso"]["auth_host"] and config["sso"]["enabled"]:
             raise ValueError("Argo CD の公開ホストと sso.auth_host は別の名前にしてください")
@@ -63,7 +71,6 @@ def normalize(config):
         raise ValueError("plugins.pinner.image はタグまたはdigest付きイメージ参照です")
     if p["registry_secret"] != "" and not dns_label(p["registry_secret"]):
         raise ValueError("plugins.pinner.registry_secret はpinner-systemの既存Secret名です")
-    config["plugins"] = result
 
 
 def resource(api, kind, name, namespace="", **fields):
@@ -73,8 +80,16 @@ def resource(api, kind, name, namespace="", **fields):
     return {"apiVersion": api, "kind": kind, "metadata": meta, **fields}
 
 
+def argocd_route_id(config):
+    argocd = config["plugins"]["argocd"]
+    # The old publish-only configuration targets an externally installed Deployment.
+    return "standard_nobuffer_domain" if argocd["publish"] and not argocd["enabled"] else "knative_nobuffer_domain"
+
+
 def argocd_host(config):
-    return "argocd." + config["routes"]["standard_nobuffer_domain"]["domain"]
+    route = argocd_route_id(config)
+    prefix = ARGOCD_KSERVICE + "-argocd-ksvc." if route == "knative_nobuffer_domain" else "argocd."
+    return prefix + config["routes"][route]["domain"]
 
 
 def render_argocd_routes(config, output, auth_plugin):
@@ -83,17 +98,24 @@ def render_argocd_routes(config, output, auth_plugin):
         target.unlink(missing_ok=True)
         return
     host = argocd_host(config)
-    route = config["routes"]["standard_nobuffer_domain"]
-    service = resource("v1", "Service", "argocd-nobuffer-proxy", "test", spec={
-        "type": "ExternalName", "externalName": "argo-cd-argocd-server.argocd.svc.cluster.local",
-        "ports": [{"name": "https", "port": 443}],
-    })
-    service["metadata"]["annotations"] = {"konghq.com/protocol": "https"}
+    route_id = argocd_route_id(config)
+    route = config["routes"][route_id]
+    items = []
+    if route_id == "knative_nobuffer_domain":
+        backend, port, secret = "kourier-proxy", 80, "knative-nobuffer-tls"
+    else:
+        backend, port, secret = "argocd-nobuffer-proxy", 443, "standard-nobuffer-tls"
+        service = resource("v1", "Service", backend, "test", spec={
+            "type": "ExternalName", "externalName": "argo-cd-argocd-server.argocd.svc.cluster.local",
+            "ports": [{"name": "https", "port": port}],
+        })
+        service["metadata"]["annotations"] = {"konghq.com/protocol": "https"}
+        items.append(service)
     ingress = resource("networking.k8s.io/v1", "Ingress", "argocd-nobuffer", "test", spec={
         "ingressClassName": "kong-ingress",
-        "tls": [{"hosts": [host], "secretName": "standard-nobuffer-tls"}],
+        "tls": [{"hosts": [host], "secretName": secret}],
         "rules": [{"host": host, "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {
-            "service": {"name": "argocd-nobuffer-proxy", "port": {"number": 443}},
+            "service": {"name": backend, "port": {"number": port}},
         }}]}}],
     })
     plugins = "strip-error-reason"
@@ -105,21 +127,58 @@ def render_argocd_routes(config, output, auth_plugin):
         "konghq.com/request-buffering": str(route.get("request_buffering", False)).lower(),
         "konghq.com/response-buffering": str(route["buffering"]).lower(),
     }
-    target.write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": [service, ingress]}, indent=2) + "\n")
+    items.append(ingress)
+    target.write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2) + "\n")
 
 
 def apply_argocd_routes(cluster, output):
     target = output / "argocd-routes.json"
+    items = []
     if target.exists():
-        owned_apply(cluster, json.loads(target.read_text())["items"])
-        return
+        items = json.loads(target.read_text())["items"]
+        owned_apply(cluster, items)
+    active = {item["metadata"]["name"] for item in items}
     for _, kind, name, namespace in reversed(RESOURCE_IDENTITIES):
-        identifier = kind.lower() + "/" + name
-        found = cluster.call("get", identifier, "-n", namespace, "--ignore-not-found", "-o",
-                             'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}',
-                             capture_output=True, text=True)
-        if found.stdout.strip() == "infra-kubernetes":
-            cluster.call("delete", identifier, "-n", namespace, "--ignore-not-found")
+        if namespace == "test" and name not in active:
+            remove_owned(cluster, kind.lower() + "/" + name, namespace)
+
+
+def remove_owned(cluster, identifier, namespace):
+    found = cluster.call("get", identifier, "-n", namespace, "--ignore-not-found", "-o",
+                         'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}',
+                         capture_output=True, text=True)
+    if found.stdout.strip() == "infra-kubernetes":
+        cluster.call("delete", identifier, "-n", namespace, "--ignore-not-found")
+
+
+def argocd_knative_service(config, deployment):
+    pod = deployment["spec"]["template"]
+    pod_spec = pod["spec"]
+    container = copy.deepcopy(pod_spec["containers"][0])
+    port = next(port["containerPort"] for port in container["ports"] if port["name"] == "server")
+    container["ports"] = [{"name": "h2c", "containerPort": port}]
+    container["env"] = [var for var in container["env"] if var["name"] != "ARGOCD_SERVER_INSECURE"]
+    container["env"].append({"name": "ARGOCD_SERVER_INSECURE", "value": "true"})
+    writable = {volume["name"] for volume in pod_spec["volumes"] if "emptyDir" in volume}
+    for mount in container["volumeMounts"]:
+        if mount["name"] not in writable:
+            mount["readOnly"] = True
+    for name in ("readinessProbe", "livenessProbe", "startupProbe"):
+        if "httpGet" in container.get(name, {}):
+            container[name]["httpGet"]["port"] = port
+    # Keep the Helm server's RBAC and mounts. Do not select the Revision Pods from the old Service.
+    annotations = dict(pod["metadata"].get("annotations", {}), **{"autoscaling.knative.dev/min-scale": "0"})
+    service = resource("serving.knative.dev/v1", "Service", ARGOCD_KSERVICE, "argocd", spec={
+        "template": {"metadata": {"annotations": annotations}, "spec": {
+            "serviceAccountName": pod_spec["serviceAccountName"], "containers": [container],
+            "volumes": pod_spec["volumes"], "timeoutSeconds": 300,
+        }},
+    })
+    labels = service["metadata"]["labels"]
+    labels["infra.sasano8.dev/route"] = "knative_nobuffer_domain"
+    if not config["plugins"]["argocd"]["publish"]:
+        labels["networking.knative.dev/visibility"] = "cluster-local"
+    return service
 
 
 def pinner_resources(config):
@@ -220,7 +279,7 @@ def preflight(config):
         require_helm()
 
 
-def owned_apply(cluster, items):
+def owned_apply(cluster, items, *, dry_run=False):
     # Inspect every object first; do not partially overwrite foreign resources.
     for item in items:
         meta = item["metadata"]
@@ -230,7 +289,8 @@ def owned_apply(cluster, items):
         found = cluster.call(*args, capture_output=True, text=True).stdout
         if found.strip() and json.loads(found).get("metadata", {}).get("labels", {}).get("infra.sasano8.dev/owner") != "infra-kubernetes":
             raise ValueError("所有確認できないpluginリソースは変更しません: " + item["kind"] + "/" + meta["name"])
-    cluster.call("apply", "--server-side", "--field-manager=infra-platform", "-f", "-",
+    options = ("--dry-run=server",) if dry_run else ()
+    cluster.call("apply", "--server-side", "--field-manager=infra-platform", *options, "-f", "-",
                  input=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}), text=True)
 
 
@@ -274,6 +334,15 @@ def install(name, cluster, config, ensure_namespaces):
                 cluster.call(*delete)
         return
     chart = CHARTS[name]
+    knative = name == "argocd" and argocd_route_id(config) == "knative_nobuffer_domain"
+    values = []
+    if knative:
+        cluster.call("get", "crd/services.serving.knative.dev", "-o", "name")
+        values += ["--set", "server.replicas=0,server.service.type=ClusterIP"]
+        if config["plugins"]["argocd"]["publish"]:
+            port = config["tls"]["host_https_port"] or 443
+            origin = "https://" + argocd_host(config) + ("" if port == 443 else f":{port}")
+            values += ["--set-string", "configs.cm.url=" + origin]
     require_helm()
     with helm_context(cluster) as env:
         existing = json.loads(helm_call(env, "list", "--all", "-n", chart["namespace"],
@@ -287,14 +356,26 @@ def install(name, cluster, config, ensure_namespaces):
             if not owned:
                 raise ValueError("外部管理のHelm releaseを引き継ぎません: " + chart["release"])
         ensure_namespaces(cluster, (chart["namespace"],))
+        if knative and existing:
+            # Check the Knative admission policy before scaling down an existing server.
+            deployment = cluster.get("deployment/argo-cd-argocd-server", "-n", "argocd")
+            owned_apply(cluster, [argocd_knative_service(config, deployment)], dry_run=True)
         print("plugin install: " + name + " / chart " + chart["version"], flush=True)
         helm_call(env, "upgrade", "--install", chart["release"], chart["chart"], "--repo", chart["repo"],
                   "--version", chart["version"], "--namespace", chart["namespace"],
-                  "--values", chart_values(name), "--reset-values",
+                  "--values", chart_values(name), "--reset-values", *values,
                   "--labels", "infra.sasano8.dev/owner=infra-kubernetes", "--wait=false", "--timeout", "300s")
+    if knative:
+        deployment = cluster.get("deployment/argo-cd-argocd-server", "-n", "argocd")
+        owned_apply(cluster, [argocd_knative_service(config, deployment)])
+    elif name == "argocd" and existing:
+        found = cluster.call("get", "crd/services.serving.knative.dev", "--ignore-not-found", "-o", "name",
+                             capture_output=True, text=True)
+        if found.stdout.strip():
+            remove_owned(cluster, "ksvc/" + ARGOCD_KSERVICE, "argocd")
 
 
-def wait(name, cluster):
+def wait(name, cluster, config=None):
     if name == "pinner":
         cluster.call("rollout", "status", "deployment/pinner", "-n", "pinner-system", "--timeout=300s")
         return
@@ -306,10 +387,15 @@ def wait(name, cluster):
     for item in found["items"]:
         cluster.call("rollout", "status", item["kind"].lower() + "/" + item["metadata"]["name"],
                      "-n", chart["namespace"], "--timeout=300s")
+    if name == "argocd" and config and argocd_route_id(config) == "knative_nobuffer_domain":
+        service = "ksvc/" + ARGOCD_KSERVICE
+        cluster.call("wait", service, "-n", "argocd", "--for=condition=Ready", "--timeout=300s")
+        if config["plugins"]["argocd"]["publish"]:
+            cluster.call("wait", service, "-n", "argocd", "--for=jsonpath={.status.url}=http://" + argocd_host(config), "--timeout=180s")
 
 
 def up(cluster, config, ensure_namespaces):
     for name in STANDARD:
         if config["plugins"][name]["enabled"]:
             install(name, cluster, config, ensure_namespaces)
-            wait(name, cluster)
+            wait(name, cluster, config)

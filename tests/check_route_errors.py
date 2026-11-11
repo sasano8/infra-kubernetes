@@ -56,11 +56,13 @@ def main():
         kong_docs = list(yaml.safe_load_all((path / "rendered/kong.yaml").read_text()))
         limits_map = next(i for i in kong_docs if i["kind"] == "ConfigMap")
         (path / "upload-limits.conf").write_text(limits_map["data"]["upload-limits.conf"])
+        (path / "kong.lua").write_text(limits_map["data"]["kong.lua"])
         deployment = next(i for i in kong_docs if i["kind"] == "Deployment")
         kong_env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
         limits_flags = tuple(arg for env_var in kong_env
                              if env_var["name"].startswith("KONG_NGINX_PROXY_") or env_var["name"] == "KONG_NGINX_HTTP_INCLUDE"
                              for arg in ("-e", f'{env_var["name"]}={env_var["value"]}'))
+        lua_path = next(env_var["value"] for env_var in kong_env if env_var["name"] == "KONG_LUA_PACKAGE_PATH")
         apps = list(yaml.safe_load_all((path / "rendered/apps.yaml").read_text()))
         code = next(i for i in apps if i["kind"] == "ConfigMap" and i["metadata"]["name"] == "sso-portal")
         generated_routes = list(yaml.safe_load_all((path / "rendered/routes.yaml").read_text()))
@@ -311,9 +313,10 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                 "-e", "KONG_DATABASE=off", "-e", "KONG_KIC=on", "-e", "KONG_DECLARATIVE_CONFIG=/fixtures/kong-before.yaml",
                 "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000,0.0.0.0:8443 ssl", "-e", "KONG_ADMIN_LISTEN=127.0.0.1:8001",
                 "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_PLUGINS=bundled,session-auth",
-                "-e", "KONG_LUA_PACKAGE_PATH=/opt/?.lua;;",
+                "-e", "KONG_LUA_PACKAGE_PATH=" + lua_path,
                 *limits_flags,
                 "--mount", f"type=bind,src={path / 'upload-limits.conf'},dst=/etc/kong/infra/upload-limits.conf,readonly",
+                "--mount", f"type=bind,src={path / 'kong.lua'},dst=/etc/kong/infra/kong.lua,readonly",
                 "--mount", f"type=bind,src={path / 'session-auth'},dst=/opt/kong/plugins/session-auth,readonly"))
             http_port = int(docker("port", gateway, "8000/tcp").rsplit(":", 1)[1])
             tls_port = int(docker("port", gateway, "8443/tcp").rsplit(":", 1)[1])
@@ -324,7 +327,7 @@ ThreadingHTTPServer(('0.0.0.0', 4180), Auth).serve_forever()
                 if context is not None:
                     sock = socket.create_connection(("127.0.0.1", port), timeout=5)
                     try:
-                        conn.sock = context.wrap_socket(sock, server_hostname=sni or host)
+                        conn.sock = context.wrap_socket(sock, server_hostname=(host if sni is None else sni or None))
                     except Exception:
                         sock.close()
                         raise
@@ -398,15 +401,16 @@ assert(res.status == 201, res.body)
             for uri in ("/oauth2/start", "/oauth2/callback", "/oauth2/sign_in", "/oauth2/sign_out"):
                 assert request(auth_host, uri, context=verified)[0] == 200, uri
             assert request(unknown_app, context=verified)[0] == 421
-            try:
-                request(invalid_domain, context=verified)
-            except ssl.SSLCertVerificationError:
-                pass
-            else:
-                raise AssertionError("Unknown domain must fail certificate verification before HTTP")
-            # Negative TLS diagnostic only; normal verification above stays enabled.
+            # A handshake must fail even when the client skips verification, so a
+            # mismatched or default certificate cannot mask a missing SNI guard.
             diagnostic = ssl._create_unverified_context()
-            assert request(invalid_domain, context=diagnostic)[0] == 421
+            for sni in (invalid_domain, "bad_label." + public_domain, "nested.app." + public_domain, ""):
+                try:
+                    request(public_host, context=diagnostic, sni=sni)
+                except ssl.SSLError as error:
+                    assert error.reason == "TLSV1_ALERT_INTERNAL_ERROR", (sni, error)
+                else:
+                    raise AssertionError(f"Expected ClientHello rejection for SNI {sni!r}")
             assert request(invalid_domain, context=verified, sni=public_host)[0] == 421
             # External requests must not select Knative's internal probe routes.
             spoofed = {"K-Original-Host": "attacker.invalid", "K-Proxy-Request": "activator",

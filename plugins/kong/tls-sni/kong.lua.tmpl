@@ -1,0 +1,28 @@
+-- Extend the pinned Kong template's ClientHello hook before it can send a certificate.
+local kong = require "kong.init"
+local clienthello = require "ngx.ssl.clienthello"
+local kong_client_hello = kong.ssl_client_hello
+assert(type(kong_client_hello) == "function", "Kong ClientHello hook is required")
+
+local domains = {
+$tls_sni_domains
+}
+
+function kong.ssl_client_hello()
+    local name = clienthello.get_client_hello_server_name()
+    if name then
+        name = name:lower()
+        if domains[name] then
+            return kong_client_hello()
+        end
+        local label, domain = name:match("^([^.]+)%.(.+)$$")
+        if domain and domains[domain] and #label <= 63
+            and label:match("^[a-z0-9]") and label:match("[a-z0-9]$$")
+            and not label:find("[^a-z0-9%-]") then
+            return kong_client_hello()
+        end
+    end
+    return ngx.exit(ngx.ERROR)
+end
+
+return kong

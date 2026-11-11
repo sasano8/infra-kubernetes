@@ -7,6 +7,7 @@ metadata:
 data:
   upload-limits.conf: |
 $upload_limits_config
+$tls_sni_config
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -23,6 +24,7 @@ $rollout_strategy
       labels: {app: kong-ingress}
       annotations:
         infra.sasano8.dev/upload-limits: "$upload_limits_hash"
+        infra.sasano8.dev/tls-sni: "$tls_sni_hash"
 $sso_pod_annotation
     spec:
       serviceAccountName: kong-ingress
@@ -32,6 +34,7 @@ $sso_pod_annotation
           image: kong:3.9.1
           env:
 $sso_env
+$lua_package_env
             - {name: KONG_DATABASE, value: "off"}
             - {name: KONG_PROXY_LISTEN, value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"}
             - {name: KONG_PORT_MAPS, value: "80:8000,443:8443"}

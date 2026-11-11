@@ -15,7 +15,7 @@
     "id_token_header": "X-Forwarded-Id-Token"
   },
   "plugins": {
-    "argocd": {"enabled": false, "publish": false},
+    "argocd": {"enabled": false},
     "infisical": {"enabled": false},
     "external-secrets": {},
     "pinner": {"enabled": false}

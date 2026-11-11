@@ -46,7 +46,7 @@ Helm管理のreleaseラベルで再実行を判定し、手動導入やk0s Helm�
 
 | plugin | 導入先 | 固定する本体 | 公開方式 |
 | --- | --- | --- | --- |
-| argocd | `argocd` | `argo-cd` chart `10.9.2` | `argo-cd-argocd-server` の NodePort。HTTP `30090`、HTTPS `30091` |
+| argocd | `argocd` | `argo-cd` chart `10.9.2` | `argocd-server` は Knative。TLS 有効時は Kong 経由で公開 |
 | infisical | `infisical-system` | `secrets-operator` chart `0.11.10` | Operatorのみ。Infisicalサーバーは導入しない |
 | external-secrets | `external-secrets` | `external-secrets` chart `2.11.0` | 任意のOperator |
 | pinner | `pinner-system` | `plugins.pinner.image` | 内部のcontrollerのみ |
@@ -59,11 +59,11 @@ Infisical／ESOはHelmの`--namespace`でRoleBindingやwebhookのnamespaceも揃
 ## upへ組み込む設定
 
 環境設定の `plugins` で、一括導入するプラグインを `enabled: true` にする。
-Argo CD を導入して Kong 経由で公開する場合は `publish: true` も指定する。
+Argo CD は TLS が有効なら Kong 経由で公開する。
 
 ```json
 "plugins": {
-  "argocd": {"enabled": true, "publish": true},
+  "argocd": {"enabled": true},
   "infisical": {"enabled": true},
   "external-secrets": {},
   "pinner": {
@@ -86,28 +86,35 @@ Argo CD を導入して Kong 経由で公開する場合は `publish: true` も�
 
 ## Argo CD の公開先を確認する
 
-### Kong の `standard_nobuffer_domain` で公開する
+### Knative で UI と API を起動する
 
-`plugins.argocd` を次のように設定して `make up` を実行すると、Argo CD の Helm 導入と
-Kong の公開経路の適用を一括で行う。`tls.enabled=true` が必要。
+既存の環境設定の `plugins.argocd` を次の値にして `make up` を実行する。
 
 ```json
-"argocd": {"enabled": true, "publish": true}
+"argocd": {"enabled": true}
 ```
 
-公開 URL は `https://argocd.<standard_nobuffer_domain>/`。転送先は `argocd/argo-cd-argocd-server` の HTTPS 443 番。
-この名前が Kong の公開 IP に解決するようにする。Kong は `standard-nobuffer-tls` のワイルドカード証明書を使い、
-認証・バッファリングには `routes.standard_nobuffer_domain` の設定を適用する。
-SSO 有効で `auth: sso` の場合、ブラウザで Google 認証後に Argo CD のログイン画面を確認する。
+Argo CD の Application Controller、Repository Server、Redis などは Helm で稼働する。
+UI と API を担当する `argocd-server` は Knative Service として動き、アクセスがない間はスケールゼロにできる。
+Helm 側のサーバー Deployment はレプリカを 0 にし、旧 Service を ClusterIP に切り替える。
+
+TLS 有効時は Kong が TLS を終端し、Kourier 経由で `argocd-server` に転送する。公開ホストの形式は
+`argocd-server-argocd-ksvc.<knative_nobuffer_domain>`。この名前を Kong の公開 IP に向ける。
+認証とバッファリングには `routes.knative_nobuffer_domain` の設定を使う。
 
 ```bash
-kubectl -n test get ingress argocd-nobuffer
-curl -sSI https://argocd.standard-nobuffer.backoffice.ys-method-dev.com/
+kubectl -n argocd get ksvc argocd-server
+kubectl -n argocd get pods -l serving.knative.dev/service=argocd-server
 ```
 
-公開を止める場合は `publish` を `false` にして `make up` を実行する。
+アクセスを止めて Pod が 0 件になったら、ブラウザで公開 URL を開いてログイン画面への復帰を確認する。
+SSO 経路では Google 認証後に確認する。最初のアクセスは起動完了まで待つ。
 
-### NodePort で公開する
+### Kustomize で管理する既存の NodePort 構成
+
+`plugins/argocd/` の Namespace と Helm inflator を使う既存環境では、
+`kubectl kustomize --enable-helm plugins/argocd` でマニフェストを確認できる。
+チャートの values はインストーラーと共用する。同じクラスタでは Helm CLI、Kustomize、k0s Helm 拡張のうち一つで管理する。
 
 配備後、Argo CD の Service が `80:30090/TCP,443:30091/TCP` を割り当てられたことを確認する。
 
@@ -125,13 +132,6 @@ Argo CD自身の管理者認証を使用し、初期管理者パスワードはA
 Git接続・Applicationはこの導入後、別管理の構成で登録する。
 最初は専用のアプリNamespaceに限定し、手動配備済みの`test`・Kong・Knative本体を
 無条件に同期・pruneするApplicationを作らない。
-
-### Kustomize で管理している環境
-
-`plugins/argocd/` に Namespace と Helm inflator の定義がある。
-`kubectl kustomize --enable-helm plugins/argocd` でマニフェストを確認できる。
-チャートの values はインストーラーと共用する。配備は既存の管理方法に合わせ、
-同じクラスタで Helm CLI、Kustomize、k0s Helm 拡張による Argo CD の導入を重ねない。
 
 ## Infisical／ESOの同期設定
 

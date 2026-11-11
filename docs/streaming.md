@@ -13,36 +13,79 @@ Kong と Kourier を経由するリクエスト本文とレスポンスの転送
 レスポンスは、バックエンドが返す `X-Accel-Buffering` に従って Kong が処理する。
 図は逐次転送の対象経路を示す。ヘッダーを省略したレスポンスは Kong のルート設定に従う。
 
+### 共通手順
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant K as Kong
+    C->>K: リクエストヘッダー
+    opt 認証が必要な経路
+        Note over K: 認証を確認してからバックエンドに転送
+    end
+    C->>K: リクエスト本文を送り始める
+```
+
+以下の各ケースは、共通手順のあとに続く別々の経路を示す。
+
+### Kourier 経由（Knative）・`X-Accel-Buffering: yes`
+
 ```mermaid
 sequenceDiagram
     participant C as クライアント
     participant K as Kong
     participant Q as Kourier（Envoy）
     participant B as バックエンド
-    Note over Q: リクエスト・レスポンスとも本文全体をためずに順次転送
-    C->>K: リクエストヘッダー
-    opt 認証が必要な経路
-        Note over K: 認証を確認してからバックエンドに転送
-    end
-    C->>K: リクエスト本文を送り始める
-
-    alt Kourier 経由（Knative）・X-Accel-Buffering = yes
+    rect rgba(128, 128, 128, 0.15)
+        Note over Q: リクエスト・レスポンスとも順次転送
         K->>Q: リクエスト本文を順次転送
         Q->>B: リクエスト本文を順次転送
         B-->>Q: X-Accel-Buffering: yes とレスポンス本文
         Q-->>K: ヘッダーと本文を順次転送
         K-->>C: レスポンスをバッファリングして転送
-    else Kourier 経由（Knative）・X-Accel-Buffering = no
+    end
+```
+
+### Kourier 経由（Knative）・`X-Accel-Buffering: no`
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant K as Kong
+    participant Q as Kourier（Envoy）
+    participant B as バックエンド
+    rect rgba(128, 128, 128, 0.15)
+        Note over Q: リクエスト・レスポンスとも順次転送
         K->>Q: リクエスト本文を順次転送
         Q->>B: リクエスト本文を順次転送
         B-->>Q: X-Accel-Buffering: no とレスポンス本文
         Q-->>K: ヘッダーと本文を順次転送
         K-->>C: レスポンスを順次転送
-    else Kourier なし（通常 Service）・X-Accel-Buffering = yes
+    end
+```
+
+### Kourier なし（通常 Service）・`X-Accel-Buffering: yes`
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant K as Kong
+    participant B as バックエンド
+    rect rgba(128, 128, 128, 0.15)
         K->>B: リクエスト本文を順次転送
         B-->>K: X-Accel-Buffering: yes とレスポンス本文
         K-->>C: レスポンスをバッファリングして転送
-    else Kourier なし（通常 Service）・X-Accel-Buffering = no
+    end
+```
+
+### Kourier なし（通常 Service）・`X-Accel-Buffering: no`
+
+```mermaid
+sequenceDiagram
+    participant C as クライアント
+    participant K as Kong
+    participant B as バックエンド
+    rect rgba(128, 128, 128, 0.15)
         K->>B: リクエスト本文を順次転送
         B-->>K: X-Accel-Buffering: no とレスポンス本文
         K-->>C: レスポンスを順次転送

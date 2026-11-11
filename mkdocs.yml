@@ -1,4 +1,5 @@
 site_name: infra-kubernetes
+site_url: https://sasano8.github.io/infra-kubernetes/
 repo_url: https://github.com/sasano8/infra-kubernetes
 
 theme:

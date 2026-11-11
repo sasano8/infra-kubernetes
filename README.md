@@ -32,9 +32,11 @@ make test-connect-cleanup  # テスト用 Cookie を削除
 
 ## ドキュメント
 
+[ドキュメントサイト](https://sasano8.github.io/infra-kubernetes/)
+
 - [導入・設定適用](docs/setup-details.md)、[HTTPS・DNS・証明書](docs/https.md)
 - [アプリ公開とルーティング](docs/route-configuration.md)、[SSO](docs/sso.md)、[ストリーミング](docs/streaming.md)
 - [動作確認と障害切り分け](docs/verification.md)、[追加プラグイン](docs/platform-plugins.md)、[移行・旧リソース整理・撤去](docs/cleanup.md)
 
 MkDocs サイトは [uv](https://docs.astral.sh/uv/) を使って `make docs` でビルドできます。
-`make docs-serve` で [ローカルのプレビュー](http://127.0.0.1:8000/) を開けます。
+`make docs-serve` で [ローカルのプレビュー](http://127.0.0.1:8000/infra-kubernetes/) を開けます。

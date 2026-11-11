@@ -104,7 +104,22 @@ python3 -c 'import json; r=json.load(open(".local/results/upload.json")); assert
 go-httpbinの完了ログだけでは逐次受信を判定できない。観測していなければ
 「転送成功／request非バッファリング未確認」と記録する。
 同時にKong・Kourier・queue-proxy・アプリのメモリや一時ディスクも観測する。
-S3署名やmultipart uploadの互換性は採用する実ストレージで別途検証する。
+
+### S3 のマルチパートアップロードとサイズ上限
+
+boto3 の `upload_file()` などの転送 API は、設定したしきい値に達したファイルを分割して送る。
+S3 の `UploadPart` はパートごとに独立した HTTP リクエストなので、Kong を経由する場合、
+本文上限・タイムアウト・リクエストバッファリングは各パートに適用される。
+たとえば 2 GiB のファイルを 64 MiB ずつ送れば、Kong の本文上限が 105 MiB でも、
+各パートはサイズ上限内に収まる。完成するオブジェクトの上限はストレージ側の仕様に従う。
+署名付き URL でストレージへ直接送る場合、ファイル本体には Kong の制限がかからない。
+[boto3 の転送設定](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3.html)・[S3 のパートとオブジェクトの上限](https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html)
+
+アプリ独自の最大サイズはアップロード方式に応じて設ける。Amazon S3 の署名付き POST では
+`content-length-range` でサイズの範囲を指定できる。マルチパートでは、アプリがアップロードの完了を管理し、
+送信済みパートの合計を確認してから完了させる。Amazon S3 では完了時に `MpuObjectSize` を指定すると、
+期待した合計サイズとの一致も検証できる。署名やサイズ検証の互換性は採用する実ストレージで確認する。
+[S3 の POST ポリシー](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-HTTPPOSTConstructPolicy.html)・[S3 の完了 API](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html)
 
 ## 証跡
 

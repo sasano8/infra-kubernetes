@@ -16,14 +16,22 @@ Kong と Kourier を経由するリクエスト本文とレスポンスの転送
 sequenceDiagram
     participant C as クライアント
     participant K as Kong
+    participant Q as Kourier（Envoy）
     participant B as バックエンド
+    Note over Q: リクエスト・レスポンスとも本文全体をためずに順次転送
     C->>K: リクエストヘッダー
     alt 逐次転送の対象となるアプリ
         Note over K: 保護経路は認証後に転送
         C->>K: リクエスト本文を送信
-        K->>B: 受信中から本文を順次転送
-        Note over K,B: Knative は Kourier を経由
-        B-->>K: レスポンスヘッダーと本文
+        alt Knative
+            K->>Q: 受信中から本文を順次転送
+            Q->>B: 本文を順次転送
+            B-->>Q: レスポンスヘッダーと本文
+            Q-->>K: ヘッダーと本文を順次転送
+        else 通常 Service
+            K->>B: 受信中から本文を順次転送
+            B-->>K: レスポンスヘッダーと本文
+        end
         alt X-Accel-Buffering が no
             K-->>C: レスポンスを順次転送
         else X-Accel-Buffering が yes
@@ -31,8 +39,11 @@ sequenceDiagram
         else ヘッダー指定なし
             K-->>C: ルートのレスポンス設定に従って転送
         end
-    else 認証アプリまたは公開ドメイン
-        K->>B: 各ルートの設定に従って処理
+    else 認証アプリ
+        K->>B: 認証ルートの設定に従って転送
+    else 公開ドメイン
+        K->>Q: 公開ルートの設定に従って転送
+        Q->>B: 本文を順次転送
     end
 ```
 
@@ -59,9 +70,9 @@ Kong の既定構成では、buffer 経路でもこのヘッダーを受け取�
 
 ### Knative 経路での Kourier と Kong の動作
 
-Knative のレスポンスは、アプリから Kourier（Envoy）と Kong を経由してクライアントに届く。
-Kourier v1.20 の既定構成では、レスポンス全体を蓄積する HTTP フィルターがなく、
-レスポンスの完了を待たずにデータを Kong へ順次転送する。
+Knative 経路では Kong とアプリの間に Kourier（Envoy）が入る。
+この構成の Kourier v1.20 は、Kong のルート設定にかかわらず、リクエストとレスポンスの
+どちらも本文全体の受信完了を待たずに順次転送する。
 [Kourier v1.20 の Envoy 設定](https://github.com/knative-extensions/net-kourier/blob/knative-v1.20.0/pkg/envoy/api/http_connection_manager.go)
 
 アプリが返した `X-Accel-Buffering` は Kourier を経由して Kong に届く。

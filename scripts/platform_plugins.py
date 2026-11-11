@@ -14,16 +14,20 @@ OWNER = {"infra.sasano8.dev/owner": "infra-kubernetes"}
 NAMES = ("argocd", "infisical", "external-secrets", "pinner")
 STANDARD = ("argocd", "infisical", "pinner")  # ESO is deliberately never part of up.
 CHARTS = {
-    "argocd": {"namespace": "argocd", "release": "argo-cd", "chart": "argo-cd", "version": "10.9.2",
+    "argocd": {"namespace": "argocd", "release": "argo-cd", "chart": "argo-cd", "version": "10.9.2", "values": "values.yaml",
                "repo": "https://argoproj.github.io/argo-helm"},
     "infisical": {"namespace": "infisical-system", "release": "infisical-operator", "chart": "secrets-operator",
                   "version": "0.11.10", "repo": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/"},
     "external-secrets": {"namespace": "external-secrets", "release": "external-secrets", "chart": "external-secrets",
                          "version": "2.11.0", "repo": "https://charts.external-secrets.io"},
 }
-DEFAULTS = {"argocd": {"enabled": False}, "infisical": {"enabled": False}, "external-secrets": {},
+DEFAULTS = {"argocd": {"enabled": False, "publish": False}, "infisical": {"enabled": False}, "external-secrets": {},
             "pinner": {"enabled": False, "image": "ghcr.io/sasano8/pinner:latest",
                        "dry_run": False, "interval": "5m", "registry_secret": ""}}
+RESOURCE_IDENTITIES = (
+    ("v1", "Service", "argocd-nobuffer-proxy", "test"),
+    ("networking.k8s.io/v1", "Ingress", "argocd-nobuffer", "test"),
+)
 
 
 def dns_label(value):
@@ -42,6 +46,13 @@ def normalize(config):
     for name in STANDARD:
         if type(result[name]["enabled"]) is not bool:
             raise ValueError("plugins." + name + ".enabled はtrue / falseです")
+    if type(result["argocd"]["publish"]) is not bool:
+        raise ValueError("plugins.argocd.publish はtrue / falseです")
+    if result["argocd"]["publish"]:
+        if not config["tls"]["enabled"]:
+            raise ValueError("Argo CD の公開には tls.enabled=true が必要です")
+        if argocd_host(config) == config["sso"]["auth_host"] and config["sso"]["enabled"]:
+            raise ValueError("Argo CD の公開ホストと sso.auth_host は別の名前にしてください")
     p = result["pinner"]
     if type(p["dry_run"]) is not bool:
         raise ValueError("plugins.pinner.dry_run はtrue / falseです")
@@ -60,6 +71,55 @@ def resource(api, kind, name, namespace="", **fields):
     if namespace:
         meta["namespace"] = namespace
     return {"apiVersion": api, "kind": kind, "metadata": meta, **fields}
+
+
+def argocd_host(config):
+    return "argocd." + config["routes"]["standard_nobuffer_domain"]["domain"]
+
+
+def render_argocd_routes(config, output, auth_plugin):
+    target = output / "argocd-routes.json"
+    if not config["plugins"]["argocd"]["publish"]:
+        target.unlink(missing_ok=True)
+        return
+    host = argocd_host(config)
+    route = config["routes"]["standard_nobuffer_domain"]
+    service = resource("v1", "Service", "argocd-nobuffer-proxy", "test", spec={
+        "type": "ExternalName", "externalName": "argo-cd-argocd-server.argocd.svc.cluster.local",
+        "ports": [{"name": "https", "port": 443}],
+    })
+    service["metadata"]["annotations"] = {"konghq.com/protocol": "https"}
+    ingress = resource("networking.k8s.io/v1", "Ingress", "argocd-nobuffer", "test", spec={
+        "ingressClassName": "kong-ingress",
+        "tls": [{"hosts": [host], "secretName": "standard-nobuffer-tls"}],
+        "rules": [{"host": host, "http": {"paths": [{"path": "/", "pathType": "Prefix", "backend": {
+            "service": {"name": "argocd-nobuffer-proxy", "port": {"number": 443}},
+        }}]}}],
+    })
+    plugins = "strip-error-reason"
+    if auth_plugin:
+        plugins += "," + auth_plugin
+    ingress["metadata"]["annotations"] = {
+        "konghq.com/protocols": "https", "konghq.com/preserve-host": "true", "konghq.com/strip-path": "false",
+        "konghq.com/plugins": plugins,
+        "konghq.com/request-buffering": str(route.get("request_buffering", False)).lower(),
+        "konghq.com/response-buffering": str(route["buffering"]).lower(),
+    }
+    target.write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": [service, ingress]}, indent=2) + "\n")
+
+
+def apply_argocd_routes(cluster, output):
+    target = output / "argocd-routes.json"
+    if target.exists():
+        owned_apply(cluster, json.loads(target.read_text())["items"])
+        return
+    for _, kind, name, namespace in reversed(RESOURCE_IDENTITIES):
+        identifier = kind.lower() + "/" + name
+        found = cluster.call("get", identifier, "-n", namespace, "--ignore-not-found", "-o",
+                             'go-template={{index .metadata.labels "infra.sasano8.dev/owner"}}',
+                             capture_output=True, text=True)
+        if found.stdout.strip() == "infra-kubernetes":
+            cluster.call("delete", identifier, "-n", namespace, "--ignore-not-found")
 
 
 def pinner_resources(config):
@@ -119,6 +179,10 @@ def pinner_resources(config):
 def render(config, output):
     items = pinner_resources(config) if config["plugins"]["pinner"]["enabled"] else []
     (output / "pinner.json").write_text(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2) + "\n")
+
+
+def chart_values(name):
+    return ROOT / "plugins" / name / CHARTS[name].get("values", "values.json")
 
 
 def require_helm():
@@ -226,7 +290,7 @@ def install(name, cluster, config, ensure_namespaces):
         print("plugin install: " + name + " / chart " + chart["version"], flush=True)
         helm_call(env, "upgrade", "--install", chart["release"], chart["chart"], "--repo", chart["repo"],
                   "--version", chart["version"], "--namespace", chart["namespace"],
-                  "--values", ROOT / "plugins" / name / "values.json", "--reset-values",
+                  "--values", chart_values(name), "--reset-values",
                   "--labels", "infra.sasano8.dev/owner=infra-kubernetes", "--wait=false", "--timeout", "300s")
 
 

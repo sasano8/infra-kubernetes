@@ -267,6 +267,7 @@ def render(c, output):
             f"  tls:\n    - hosts: [{host}]\n      secretName: {definition['secret']}"
             if c["tls"]["enabled"] else "")
     route_plugins = sso.render(c, output, c["routes"])
+    platform_plugins.render_argocd_routes(c, output, route_plugins.get("standard_nobuffer_domain"))
     def auth_annotation(route):
         plugins = ["strip-error-reason"]
         if route in route_plugins:
@@ -691,6 +692,7 @@ def wait_kong(cluster):
 
 def apply_routes(cluster, output):
     cluster.call("apply", "-f", output / "routes.yaml")
+    platform_plugins.apply_argocd_routes(cluster, output)
 
 
 def deploy(cluster, c, output):

@@ -44,6 +44,40 @@ class PlatformPluginTests(unittest.TestCase):
             plugins.up(Cluster(), c, lambda *args: None)
         install.assert_not_called()
 
+    def test_argocd_install_and_publication_use_nobuffer_tls_and_sso(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            config_path = output / "config.json"
+            raw = json.loads((ROOT / "configs/environment/example.json").read_text())
+            raw["tls"].update(enabled=True, email="admin@example.test", cloudflare_zone="example.test")
+            raw["sso"].update(enabled=True, email_domain="example.test")
+            raw["plugins"]["argocd"] = {"enabled": True, "publish": True}
+            config_path.write_text(json.dumps(raw))
+            config = infra.load(config_path)
+            infra.render(config, output)
+            target = output / "argocd-routes.json"
+            service, ingress = json.loads(target.read_text())["items"]
+            host = "argocd.standard-nobuffer.example.test"
+            self.assertEqual(ingress["spec"]["rules"][0]["host"], host)
+            self.assertEqual(ingress["spec"]["tls"], [{"hosts": [host], "secretName": "standard-nobuffer-tls"}])
+            annotations = ingress["metadata"]["annotations"]
+            self.assertEqual(annotations["konghq.com/request-buffering"], "false")
+            self.assertEqual(annotations["konghq.com/response-buffering"], "false")
+            self.assertEqual(annotations["konghq.com/plugins"], "strip-error-reason,sso-standard-nobuffer-domain")
+            self.assertEqual(service["spec"]["externalName"], "argo-cd-argocd-server.argocd.svc.cluster.local")
+            self.assertEqual(service["metadata"]["annotations"]["konghq.com/protocol"], "https")
+            cluster = Cluster()
+            with patch.object(plugins, "install") as install, patch.object(plugins, "wait") as wait:
+                plugins.up(cluster, config, infra.ensure_namespaces)
+            install.assert_called_once_with("argocd", cluster, config, infra.ensure_namespaces)
+            wait.assert_called_once_with("argocd", cluster)
+            infra.apply_routes(cluster, output)
+            self.assertEqual(json.loads(cluster.calls[-1][1]["input"])["items"], [service, ingress])
+
+            config["plugins"]["argocd"]["publish"] = False
+            infra.render(config, output)
+            self.assertFalse(target.exists())
+
     def test_eso_cannot_be_enabled_in_up(self):
         with self.assertRaisesRegex(ValueError, "ESO"):
             self.config({"external-secrets": {"enabled": True}})
@@ -103,6 +137,8 @@ class PlatformPluginTests(unittest.TestCase):
             self.assertIn(plugins.CHARTS[name]["version"], args)
             self.assertIn("--namespace", args)
             self.assertIn(plugins.CHARTS[name]["namespace"], args)
+            values_file = "values.yaml" if name == "argocd" else "values.json"
+            self.assertEqual(args[args.index("--values") + 1], ROOT / "plugins" / name / values_file)
             self.assertIn("--wait=false", args)
             self.assertNotIn("--force", args)
             self.assertNotIn("--reuse-values", args)

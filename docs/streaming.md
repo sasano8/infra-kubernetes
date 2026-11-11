@@ -10,6 +10,20 @@ buffer 側は両設定を `"true"` にする。[4経路の構成](four-routes.md
 これはサンプルのルート設定であり、Knative の公開ルート選択を一般アプリの公開へ連携する機能
 (SAS-68) は含まない。指定しただけで経路全体の非バッファリングが実証されたとは扱わない。
 
+## アプリからレスポンス単位でバッファリングを無効にする
+
+SSE など、特定のレスポンスを逐次配信する場合は、アプリのレスポンスに次のヘッダーを付ける。
+
+```http
+X-Accel-Buffering: no
+```
+
+Kong の既定構成では、buffer 経路でもこのヘッダーを受け取ったレスポンスのバッファリングを無効にできる。
+この設定が作用するのは Kong のレスポンス側で、アップロードなどのリクエスト本文は
+Ingress の `konghq.com/request-buffering` で制御する。
+逐次配信は、[少しずつ返るレスポンス](#少しずつ返るレスポンス)の手順でデータの到着時刻を確認する。
+詳細は [Kong の SSE 設定ガイド](https://developer.konghq.com/support/how-can-i-use-kong-to-allow-sse-server-sent-events/) を参照。
+
 ## 配備と前提
 
 既存環境では設定を確認してから `bin/infra deploy` で再配備する。

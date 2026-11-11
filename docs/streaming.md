@@ -9,8 +9,11 @@ Kong と Kourier を経由するリクエスト本文とレスポンスの転送
 
 アプリ向け経路では、認証が必要な場合は先に認証を行い、`konghq.com/request-buffering: "false"`
 でリクエスト本文を受信しながらバックエンドへ順次転送する方針とする。
-認証アプリ（`oauth2-proxy` など）と公開ドメイン（`knative_public`）では、各ルートの設定を使う。
-レスポンスは、バックエンドが返す `X-Accel-Buffering` に従って Kong が処理する。
+認証アプリにもリクエストの逐次転送を適用し、レスポンスはバッファリングを有効にする。
+自前の認証アプリは `X-Accel-Buffering: yes` を返す。`oauth2-proxy` は Kong の認証 Ingress で
+`konghq.com/response-buffering: "true"` を指定する。
+公開ドメイン（`knative_public`）では各ルートの設定を使う。
+レスポンスに `X-Accel-Buffering` がある場合は、Kong がその値に従って処理する。
 図は逐次転送の対象経路を示す。ヘッダーを省略したレスポンスは Kong のルート設定に従う。
 
 ### 共通手順
@@ -27,6 +30,7 @@ sequenceDiagram
 ```
 
 以下の各ケースは、共通手順のあとに続く別々の経路を示す。
+`oauth2-proxy` は Kourier を経由せず、レスポンスのバッファリングを有効にするケースと同じ転送になる。
 
 ### Kourier 経由（Knative）・`X-Accel-Buffering: yes`
 

@@ -24,6 +24,17 @@ Ingress の `konghq.com/request-buffering` で制御する。
 逐次配信は、[少しずつ返るレスポンス](#少しずつ返るレスポンス)の手順でデータの到着時刻を確認する。
 詳細は [Kong の SSE 設定ガイド](https://developer.konghq.com/support/how-can-i-use-kong-to-allow-sse-server-sent-events/) を参照。
 
+### Knative 経路での Kourier と Kong の動作
+
+Knative のレスポンスは、アプリから Kourier（Envoy）と Kong を経由してクライアントに届く。
+Kourier v1.20 の既定構成では、レスポンス全体を蓄積する HTTP フィルターがなく、
+レスポンスの完了を待たずにデータを Kong へ順次転送する。
+[Kourier v1.20 の Envoy 設定](https://github.com/knative-extensions/net-kourier/blob/knative-v1.20.0/pkg/envoy/api/http_connection_manager.go)
+
+Kong は受け取ったレスポンスを自身のルート設定に従って処理する。
+アプリが `X-Accel-Buffering: no` を返すと、Kourier はそのヘッダーを Kong へ転送し、
+Kong がそのレスポンスのバッファリングを無効にする。
+
 ## 配備と前提
 
 既存環境では設定を確認してから `bin/infra deploy` で再配備する。
